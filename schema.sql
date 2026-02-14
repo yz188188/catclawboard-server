@@ -1,0 +1,68 @@
+CREATE DATABASE IF NOT EXISTS catclawboard DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE catclawboard;
+
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS db_ztdb (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  zhenfu DECIMAL(10,2),
+  declines DECIMAL(10,2),
+  INDEX idx_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_data_jjztdt (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL UNIQUE,
+  zts INT DEFAULT 0,
+  ztfd DECIMAL(15,2) DEFAULT 0,
+  dts INT DEFAULT 0,
+  dtfd DECIMAL(15,2) DEFAULT 0,
+  INDEX idx_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_zrzt_jjvol (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  zf DECIMAL(10,2),
+  zs DECIMAL(10,2),
+  volume BIGINT DEFAULT 0,
+  jje DECIMAL(15,2) DEFAULT 0,
+  rate DECIMAL(10,2) DEFAULT 0,
+  status VARCHAR(20),
+  INDEX idx_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_money_effects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL UNIQUE,
+  ztje DECIMAL(15,2) DEFAULT 0,
+  maxlb INT DEFAULT 0,
+  zts INT DEFAULT 0,
+  lbs INT DEFAULT 0,
+  yzb INT DEFAULT 0,
+  yzbfd DECIMAL(15,2) DEFAULT 0,
+  dzfs INT DEFAULT 0,
+  INDEX idx_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_zt_reson (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  cje DECIMAL(15,2) DEFAULT 0,
+  lbs INT DEFAULT 0,
+  reson VARCHAR(200),
+  INDEX idx_cdate (cdate),
+  UNIQUE KEY uk_cdate_stockid (cdate, stockid)
+);

@@ -1,0 +1,144 @@
+# 数据采集模块使用指南
+
+## 架构说明
+
+数据采集脚本 **不部署到 Cloud Run**，需要在安装了同花顺 iFinD 桌面客户端的 **本地 Windows 机器** 上运行。
+
+采集脚本通过 `DATABASE_URL` 直接写入 Cloud SQL，Cloud Run 上的 FastAPI 只负责提供 API 查询。
+
+```
+本地 Windows (有同花顺客户端)          Cloud Run (FastAPI API)
+┌──────────────────────────┐         ┌──────────────────────────┐
+│ collectors/               │         │ features/ (4个查询API)   │
+│   stat.py                │──写入──→│   ztdb/                  │
+│   thsdata.py             │  Cloud  │   jjztdt/                │
+│   bidding.py             │  SQL    │   jjbvol/                │
+│                          │         │   effect/                │
+└──────────────────────────┘         └──────────────────────────┘
+```
+
+## 环境准备
+
+### 1. 安装 Python 依赖
+
+```bash
+pip install sqlalchemy pymysql pandas chinese-calendar pydantic-settings python-dotenv
+```
+
+> iFinDPy 由同花顺 iFinD 桌面客户端自带，无需单独安装。
+
+### 2. 配置 .env 文件
+
+在项目根目录创建 `.env` 文件：
+
+```env
+DATABASE_URL=mysql+pymysql://root:yz188188@34.123.208.235:3306/catclawboard
+THS_USERNAME=你的同花顺账号
+THS_PASSWORD=你的同花顺密码
+```
+
+### 3. 确保同花顺 iFinD 客户端已启动
+
+采集脚本依赖 iFinDPy SDK，该 SDK 通过本地 Socket 与同花顺桌面客户端通信，运行前需确保客户端已登录。
+
+## 执行顺序
+
+三个采集脚本有严格的执行顺序依赖：
+
+```
+第1步: stat.py    → 写入 db_money_effects + db_zt_reson
+                                              ↓
+第2步: thsdata.py → 读取 db_zt_reson → 写入 db_ztdb
+第3步: bidding.py → 读取 db_zt_reson → 写入 db_data_jjztdt + db_zrzt_jjvol
+```
+
+**`stat.py` 必须最先运行**，因为它写入 `db_zt_reson`（涨停原因明细表），`thsdata.py` 和 `bidding.py` 都依赖该表获取昨日涨停股列表。
+
+`thsdata.py` 和 `bidding.py` 之间无依赖关系，可以任意顺序执行。
+
+## 运行命令
+
+在项目根目录执行（即 `catclawboard-server/` 目录下）：
+
+```bash
+# 采集当天数据（自动推算最近交易日）
+python -m app.collectors.stat
+python -m app.collectors.thsdata
+python -m app.collectors.bidding
+
+# 采集指定日期数据
+python -m app.collectors.stat 2025-02-14
+python -m app.collectors.thsdata 2025-02-14
+python -m app.collectors.bidding 2025-02-14
+```
+
+## 各脚本说明
+
+### stat.py — 赚钱效应统计
+
+- **运行时机**: 收盘后（15:00 之后）
+- **THS API**: `THS_WCQuery` 查询涨停板数据
+- **写入表**:
+  - `db_money_effects` — 当日涨停汇总（涨停金额、连板数、一字板数等）
+  - `db_zt_reson` — 每只涨停股明细（代码、名称、成交额、连板数、涨停原因）
+- **对应 API**: `GET /api/effect`
+
+### thsdata.py — 涨停反包数据
+
+- **运行时机**: 盘中或收盘后均可（需要实时行情）
+- **THS API**: `THS_DR`（全A股代码）、`THS_RQ`（实时行情）、`THS_WCQuery`（ST过滤）
+- **依赖**: `db_zt_reson` 中昨日涨停数据
+- **写入表**: `db_ztdb` — 昨日涨停今日大振幅未封板的股票
+- **过滤条件**: 振幅 >= 10% 且回撤 < 10%
+- **对应 API**: `GET /api/ztdb`
+
+### bidding.py — 竞价数据
+
+- **运行时机**: 集合竞价期间（9:15 - 9:25）效果最佳
+- **THS API**: `THS_DR`（全A股代码）、`THS_RQ`（竞价行情）、`THS_HQ`（昨日成交量）
+- **依赖**: `db_zt_reson` 中昨日涨停数据
+- **写入表**:
+  - `db_data_jjztdt` — 竞价涨停/跌停统计（数量+封单金额）
+  - `db_zrzt_jjvol` — 昨日涨停股竞价爆量（量比 >= 8%）
+- **对应 API**: `GET /api/jjztdt`, `GET /api/jjbvol`
+
+## 数据库表结构
+
+| 表名 | 说明 | 写入者 | 每日记录数 |
+|------|------|--------|-----------|
+| `db_zt_reson` | 涨停原因明细 | stat.py | ~30-80条 |
+| `db_money_effects` | 赚钱效应汇总 | stat.py | 1条 |
+| `db_ztdb` | 涨停反包候选 | thsdata.py | ~5-20条 |
+| `db_data_jjztdt` | 竞价涨停统计 | bidding.py | 1条 |
+| `db_zrzt_jjvol` | 竞价爆量明细 | bidding.py | ~5-15条 |
+
+## 定时任务配置（可选）
+
+在 Windows 上可使用任务计划程序（Task Scheduler）配置自动执行：
+
+| 任务 | 触发时间 | 命令 |
+|------|---------|------|
+| stat 采集 | 每个交易日 15:30 | `python -m app.collectors.stat` |
+| thsdata 采集 | 每个交易日 15:35 | `python -m app.collectors.thsdata` |
+| bidding 采集 | 每个交易日 9:20 | `python -m app.collectors.bidding` |
+
+## Cloud SQL 连接信息
+
+| 项目 | 值 |
+|------|-----|
+| 实例名 | `catclawboard-db` |
+| 连接名 | `nooka-cloudrun-250627:us-central1:catclawboard-db` |
+| 公网 IP | `34.123.208.235` |
+| 数据库 | `catclawboard` |
+| 用户 | `root` |
+
+## 故障排查
+
+### iFinDPy not available
+确保同花顺 iFinD 桌面客户端已启动并登录，且 Python 环境中能导入 `iFinDPy`。
+
+### 警告: db_zt_reson 中无数据
+说明 `stat.py` 未提前运行或对应日期无涨停数据。先运行 `python -m app.collectors.stat`。
+
+### 连接 Cloud SQL 超时
+检查本机 IP 是否在 Cloud SQL 的授权网络中（当前设为 `0.0.0.0/0` 允许所有 IP）。

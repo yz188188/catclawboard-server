@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+__pycache__
+*.pyc
+.gitignore
+.dockerignore
+cloudbuild.yaml
+schema.sql
+*.md
