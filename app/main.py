@@ -54,6 +54,10 @@ def seed_admin():
             db.add(admin)
             db.commit()
             logger.info("管理员账号已创建: %s", settings.ADMIN_USERNAME)
+        elif admin.role != "admin":
+            admin.role = "admin"
+            db.commit()
+            logger.info("管理员账号角色已修正: %s", settings.ADMIN_USERNAME)
         else:
             logger.info("管理员账号已存在: %s", settings.ADMIN_USERNAME)
     finally:
