@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -19,6 +21,18 @@ class TokenResponse(BaseModel):
 class UserInfo(BaseModel):
     id: int
     username: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
+class UserInfoAdmin(BaseModel):
+    id: int
+    username: str
+    role: str
+    password_plain: str
+    created_at: datetime
 
     class Config:
         from_attributes = True

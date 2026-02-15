@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     THS_USERNAME: str = ""
     THS_PASSWORD: str = ""
 
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "yz188188"
+
     class Config:
         env_file = ".env"
 
