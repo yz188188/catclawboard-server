@@ -1,4 +1,3 @@
-from decimal import Decimal
 from pydantic import BaseModel
 
 
@@ -7,8 +6,8 @@ class ZtdbItem(BaseModel):
     cdate: str
     stockid: str
     stockname: str | None = None
-    zhenfu: Decimal | None = None
-    declines: Decimal | None = None
+    zhenfu: float | None = None
+    declines: float | None = None
 
     class Config:
         from_attributes = True
