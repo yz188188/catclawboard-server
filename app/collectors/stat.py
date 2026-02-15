@@ -38,7 +38,7 @@ def collect_stat(cdate: str, db: Session) -> dict:
     yzb_fd = 0.0
     yzb_num = 0
     if yzdata_result.errorcode == 0:
-        jdata = json.loads(yzdata_result.data)
+        jdata = json.loads(yzdata_result.data.decode('gb18030'))
         for item in jdata["tables"]:
             ztfd_list = item["table"]["涨停封单额[" + cdate + "]"]
             ztfd_list = [float(x) for x in ztfd_list]
@@ -59,7 +59,7 @@ def collect_stat(cdate: str, db: Session) -> dict:
     maxlb = 1
     zt_details = []
     if ztdata_result.errorcode == 0:
-        jdata = json.loads(ztdata_result.data)
+        jdata = json.loads(ztdata_result.data.decode('gb18030'))
         for item in jdata["tables"]:
             code_list = item["table"]["股票代码"]
             name_list = item["table"]["股票简称"]

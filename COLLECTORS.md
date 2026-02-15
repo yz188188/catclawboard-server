@@ -37,9 +37,9 @@ THS_USERNAME=你的同花顺账号
 THS_PASSWORD=你的同花顺密码
 ```
 
-### 3. 确保同花顺 iFinD 客户端已启动
+### 3. iFinDPy SDK
 
-采集脚本依赖 iFinDPy SDK，该 SDK 通过本地 Socket 与同花顺桌面客户端通信，运行前需确保客户端已登录。
+采集脚本依赖 iFinDPy SDK，该 SDK 通过账号密码直接连接同花顺远程服务器获取数据，**不需要启动 iFinD 桌面客户端**。只要本机安装了 iFinDPy 且网络通畅即可。
 
 ## 执行顺序
 
@@ -114,7 +114,33 @@ python -m app.collectors.bidding 2025-02-14
 
 ## 定时任务配置（可选）
 
-在 Windows 上可使用任务计划程序（Task Scheduler）配置自动执行：
+### 方式一：内置调度器（推荐）
+
+项目自带调度器 `scheduler.py`，作为常驻进程自动按时间表执行采集，无需配置 Windows Task Scheduler。
+
+```bash
+# 正常调度模式（常驻进程，按时间表自动执行）
+python -m app.collectors.scheduler
+
+# 立即执行模式（测试/手动补采，立即依次执行所有任务）
+python -m app.collectors.scheduler --now
+```
+
+`--now` 模式会自动推算最近交易日，依次执行 bidding → thsdata → stat，执行完即退出。适合快速验证或手动补采。
+
+时间表（正常调度模式）：
+
+| 时间 | 任务 | 模式 |
+|------|------|------|
+| 9:26 | bidding | 单次 |
+| 9:30 – 9:40 | thsdata | 连续循环 |
+| 15:05 | stat | 单次 |
+
+非交易日自动跳过。按 Ctrl+C 停止。详细说明见 `docs/数据采集操作手册.md`。
+
+### 方式二：Windows Task Scheduler
+
+如果不使用内置调度器，也可以用 Windows 任务计划程序配置自动执行：
 
 | 任务 | 触发时间 | 命令 |
 |------|---------|------|
@@ -135,10 +161,33 @@ python -m app.collectors.bidding 2025-02-14
 ## 故障排查
 
 ### iFinDPy not available
-确保同花顺 iFinD 桌面客户端已启动并登录，且 Python 环境中能导入 `iFinDPy`。
+确保 Python 环境中能导入 `iFinDPy`。iFinDPy 由同花顺 iFinD 安装包自带，需运行 `installiFinDPy.py` 注册到 Python 环境。
 
 ### 警告: db_zt_reson 中无数据
 说明 `stat.py` 未提前运行或对应日期无涨停数据。先运行 `python -m app.collectors.stat`。
 
 ### 连接 Cloud SQL 超时
 检查本机 IP 是否在 Cloud SQL 的授权网络中（当前设为 `0.0.0.0/0` 允许所有 IP）。
+
+## 部署架构
+
+### 方式一：本地开发机（现有）
+
+在本地 Windows 电脑上运行 iFinD + 采集脚本，适合开发调试。
+
+- 优点：开发方便，可随时手动干预
+- 缺点：需要每天手动操作（或保持电脑不关机），依赖本地网络
+
+### 方式二：GCE Windows VM（推荐）
+
+在 Google Cloud 的 Windows 虚拟机上运行 iFinD + scheduler.py，实现 24/7 全自动采集。
+
+```
+GCE Windows VM (24/7)              Cloud Run
+├── iFinD 客户端                    ├── FastAPI API
+├── scheduler.py ──写入──→ Cloud SQL ←──读取── features/
+```
+
+- 优点：24/7 稳定运行，无需每日手动操作，与 Cloud SQL 同区域低延迟
+- 缺点：每月约 $35 费用
+- 详细部署步骤：[`docs/VM部署指南.md`](docs/VM部署指南.md)

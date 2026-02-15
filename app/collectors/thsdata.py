@@ -71,13 +71,13 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
     if data_result.errorcode != 0:
         return {"error": data_result.errmsg}
 
-    jdata = json.loads(data_result.data)
+    jdata = json.loads(data_result.data.decode('gb18030'))
 
     # 获取ST股列表
     st_stocks = THS_WCQuery(cdate + " ST股票", "stock", "format:json")
     st_sids = set()
     if st_stocks.errorcode == 0:
-        st_data = json.loads(st_stocks.data)
+        st_data = json.loads(st_stocks.data.decode('gb18030'))
         st_sids = set(st_data["tables"][0]["table"]["股票代码"])
 
     # 清除当日旧数据

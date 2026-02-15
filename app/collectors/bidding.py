@@ -74,7 +74,7 @@ def collect_bidding(trading_day: str, db: Session) -> dict:
     if data_result.errorcode != 0:
         return {"error": data_result.errmsg}
 
-    jdata = json.loads(data_result.data)
+    jdata = json.loads(data_result.data.decode('gb18030'))
 
     zts = 0
     dts = 0
@@ -126,7 +126,7 @@ def collect_bidding(trading_day: str, db: Session) -> dict:
         if data_lshq.errorcode != 0:
             continue
 
-        hqdata = json.loads(data_lshq.data)
+        hqdata = json.loads(data_lshq.data.decode('gb18030'))
         ls_volume = 0
         for hqs in hqdata["tables"]:
             ls_volume = hqs["table"]["volume"][0]

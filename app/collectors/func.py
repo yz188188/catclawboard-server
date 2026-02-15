@@ -10,8 +10,6 @@ except ImportError:
     THS_iFinDLogin = None
     THS_iFinDLogout = None
 
-from app.config import get_settings
-
 
 def get_previous_trading_day(date: str) -> str:
     """获取上一个交易日 (格式 YYYY-MM-DD)"""
@@ -90,8 +88,7 @@ def thslogin():
     if THS_iFinDLogin is None:
         print("iFinDPy not available, skipping THS login")
         return
-    settings = get_settings()
-    result = THS_iFinDLogin(settings.THS_USERNAME, settings.THS_PASSWORD)
+    result = THS_iFinDLogin("dbywl006", "45Xt1XPC")
     if result in {0, -201}:
         print("THS 登录成功")
     else:
