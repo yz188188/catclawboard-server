@@ -31,7 +31,7 @@ class UserInfoAdmin(BaseModel):
     id: int
     username: str
     role: str
-    password_plain: str
+    password: str
     created_at: datetime
 
     class Config:

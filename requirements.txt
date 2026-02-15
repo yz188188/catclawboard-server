@@ -3,8 +3,6 @@ uvicorn[standard]
 sqlalchemy
 pymysql
 python-jose[cryptography]
-passlib[bcrypt]
-bcrypt==4.0.1
 pydantic-settings
 python-multipart
 pandas

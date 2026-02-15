@@ -38,7 +38,6 @@ def seed_admin():
     from app.config import get_settings
     from app.database import SessionLocal
     from app.auth.models import User
-    from app.auth.dependencies import hash_password
 
     settings = get_settings()
     db = SessionLocal()
@@ -47,8 +46,7 @@ def seed_admin():
         if not admin:
             admin = User(
                 username=settings.ADMIN_USERNAME,
-                password_hash=hash_password(settings.ADMIN_PASSWORD),
-                password_plain=settings.ADMIN_PASSWORD,
+                password=settings.ADMIN_PASSWORD,
                 role="admin",
             )
             db.add(admin)
