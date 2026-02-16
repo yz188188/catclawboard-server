@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.collectors import func
 from app.collectors.models import ZtReson
 from app.features.ztdb.models import Ztdb
+from app.features.mighty.models import LargeAmount
 
 try:
     from iFinDPy import THS_DR, THS_RQ, THS_WCQuery
@@ -82,14 +83,17 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
 
     # 清除当日旧数据
     db.query(Ztdb).filter(Ztdb.cdate == cdate).delete()
+    db.query(LargeAmount).filter(LargeAmount.cdate == cdate).delete()
 
     ztdb_count = 0
+    large_amount_count = 0
     for item in jdata["tables"]:
         latest = item["table"]["latest"]
         pre_close = item["table"]["preClose"]
         upper_limit = item["table"]["upperLimit"]
         high = item["table"]["high"]
         low = item["table"]["low"]
+        amount = item["table"]["amount"]
         trade_status = item["table"]["tradeStatus"]
         thscode = item["thscode"]
         thscoder = thscode.split(".")
@@ -101,6 +105,11 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
         # 跳过当日涨停
         if latest[0] == upper_limit[0]:
             continue
+
+        # 记录成交额 > 8亿的股票（供 mighty 强势反包使用）
+        if amount[0] and amount[0] >= 800000000:
+            db.add(LargeAmount(cdate=cdate, stockid=thscode, amount=amount[0]))
+            large_amount_count += 1
 
         # 昨日涨停股中振幅>=10且回撤<10的
         if thscode in lszt_stocks:
@@ -119,7 +128,7 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
                 ztdb_count += 1
 
     db.commit()
-    return {"date": cdate, "ztdb_count": ztdb_count}
+    return {"date": cdate, "ztdb_count": ztdb_count, "large_amount_count": large_amount_count}
 
 
 if __name__ == "__main__":

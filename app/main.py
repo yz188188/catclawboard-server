@@ -8,6 +8,7 @@ from app.features.ztdb.router import router as ztdb_router
 from app.features.jjztdt.router import router as jjztdt_router
 from app.features.jjbvol.router import router as jjbvol_router
 from app.features.effect.router import router as effect_router
+from app.features.mighty.router import router as mighty_router
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ app.include_router(ztdb_router)
 app.include_router(jjztdt_router)
 app.include_router(jjbvol_router)
 app.include_router(effect_router)
+app.include_router(mighty_router)
 
 
 @app.on_event("startup")

@@ -24,6 +24,7 @@ app/
 │   └── router.py       # /auth/* 路由
 ├── features/       # 业务功能模块
 │   ├── ztdb/           # 涨停反包
+│   ├── mighty/         # 强势反包
 │   ├── jjztdt/         # 竞价一字
 │   ├── jjbvol/         # 竞价爆量
 │   └── effect/         # 赚钱效应

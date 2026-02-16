@@ -9,10 +9,11 @@
 ```
 本地 Windows (有同花顺客户端)          Cloud Run (FastAPI API)
 ┌──────────────────────────┐         ┌──────────────────────────┐
-│ collectors/               │         │ features/ (4个查询API)   │
+│ collectors/               │         │ features/ (5个查询API)   │
 │   stat.py                │──写入──→│   ztdb/                  │
-│   thsdata.py             │  Cloud  │   jjztdt/                │
-│   bidding.py             │  SQL    │   jjbvol/                │
+│   thsdata.py             │  Cloud  │   mighty/                │
+│   bidding.py             │  SQL    │   jjztdt/                │
+│   mighty.py              │         │   jjbvol/                │
 │                          │         │   effect/                │
 └──────────────────────────┘         └──────────────────────────┘
 ```
@@ -48,8 +49,9 @@ THS_PASSWORD=你的同花顺密码
 ```
 第1步: stat.py    → 写入 db_money_effects + db_zt_reson
                                               ↓
-第2步: thsdata.py → 读取 db_zt_reson → 写入 db_ztdb
+第2步: thsdata.py → 读取 db_zt_reson → 写入 db_ztdb + db_large_amount
 第3步: bidding.py → 读取 db_zt_reson → 写入 db_data_jjztdt + db_zrzt_jjvol
+第4步: mighty.py  → 读取 db_large_amount → 写入 db_mighty（次日盘中实时监控）
 ```
 
 **`stat.py` 必须最先运行**，因为它写入 `db_zt_reson`（涨停原因明细表），`thsdata.py` 和 `bidding.py` 都依赖该表获取昨日涨停股列表。
@@ -88,9 +90,25 @@ python -m app.collectors.bidding 2025-02-14
 - **运行时机**: 盘中或收盘后均可（需要实时行情）
 - **THS API**: `THS_DR`（全A股代码）、`THS_RQ`（实时行情）、`THS_WCQuery`（ST过滤）
 - **依赖**: `db_zt_reson` 中昨日涨停数据
-- **写入表**: `db_ztdb` — 昨日涨停今日大振幅未封板的股票
+- **写入表**:
+  - `db_ztdb` — 昨日涨停今日大振幅未封板的股票
+  - `db_large_amount` — 成交额 > 8亿的股票（供 mighty.py 使用）
 - **过滤条件**: 振幅 >= 10% 且回撤 < 10%
 - **对应 API**: `GET /api/ztdb`
+
+### mighty.py — 强势反包数据
+
+- **运行时机**: 盘中 9:30-9:46 实时监控；收盘后 `--close` 更新收盘涨幅
+- **THS API**: `THS_RQ`（实时行情）
+- **依赖**: `db_large_amount` 中昨日大成交额股票池
+- **写入表**: `db_mighty` — 强势分时股（评分、涨幅、换手率等）
+- **过滤条件**: 振幅 >= 5%、涨速 > 1.5%、换手率 > 10%、评分 >= 100
+- **对应 API**: `GET /api/mighty`
+
+```bash
+python -m app.collectors.mighty           # 实时监控 (9:30-9:46)
+python -m app.collectors.mighty --close   # 收盘后更新收盘涨幅
+```
 
 ### bidding.py — 竞价数据
 
@@ -109,6 +127,8 @@ python -m app.collectors.bidding 2025-02-14
 | `db_zt_reson` | 涨停原因明细 | stat.py | ~30-80条 |
 | `db_money_effects` | 赚钱效应汇总 | stat.py | 1条 |
 | `db_ztdb` | 涨停反包候选 | thsdata.py | ~5-20条 |
+| `db_large_amount` | 大成交额股票池 | thsdata.py | ~200-400条 |
+| `db_mighty` | 强势反包入选 | mighty.py | ~5-30条 |
 | `db_data_jjztdt` | 竞价涨停统计 | bidding.py | 1条 |
 | `db_zrzt_jjvol` | 竞价爆量明细 | bidding.py | ~5-15条 |
 
@@ -126,15 +146,17 @@ python -m app.collectors.scheduler
 python -m app.collectors.scheduler --now
 ```
 
-`--now` 模式会自动推算最近交易日，依次执行 bidding → thsdata → stat，执行完即退出。适合快速验证或手动补采。
+`--now` 模式会自动推算最近交易日，依次执行 bidding → thsdata → stat → mighty_close，执行完即退出。适合快速验证或手动补采。
 
 时间表（正常调度模式）：
 
-| 时间 | 任务 | 模式 |
-|------|------|------|
-| 9:26 | bidding | 单次 |
-| 9:30 – 9:40 | thsdata | 连续循环 |
-| 15:05 | stat | 单次 |
+| 时间 | 任务 | 模式 | 说明 |
+|------|------|------|------|
+| 9:26 | bidding | 单次 | 竞价数据 |
+| 9:30-9:46 | mighty | 启动一次（内含循环） | 强势反包实时监控 |
+| 9:35 | thsdata | 单次 | 涨停反包 + 大成交额股票池 |
+| 15:05 | stat | 单次 | 涨停统计 |
+| 15:10 | mighty_close | 单次 | 更新强势反包收盘涨幅 |
 
 非交易日自动跳过。按 Ctrl+C 停止。详细说明见 `docs/数据采集操作手册.md`。
 
@@ -144,9 +166,11 @@ python -m app.collectors.scheduler --now
 
 | 任务 | 触发时间 | 命令 |
 |------|---------|------|
-| stat 采集 | 每个交易日 15:30 | `python -m app.collectors.stat` |
-| thsdata 采集 | 每个交易日 15:35 | `python -m app.collectors.thsdata` |
 | bidding 采集 | 每个交易日 9:20 | `python -m app.collectors.bidding` |
+| mighty 监控 | 每个交易日 9:29 | `python -m app.collectors.mighty` |
+| thsdata 采集 | 每个交易日 9:35 | `python -m app.collectors.thsdata` |
+| stat 采集 | 每个交易日 15:05 | `python -m app.collectors.stat` |
+| mighty 收盘 | 每个交易日 15:10 | `python -m app.collectors.mighty --close` |
 
 ## Cloud SQL 连接信息
 

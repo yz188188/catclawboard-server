@@ -70,3 +70,29 @@ CREATE TABLE IF NOT EXISTS db_zt_reson (
   INDEX idx_cdate (cdate),
   UNIQUE KEY uk_cdate_stockid (cdate, stockid)
 );
+
+CREATE TABLE IF NOT EXISTS db_large_amount (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  amount DECIMAL(20,2) DEFAULT 0,
+  INDEX idx_cdate (cdate),
+  UNIQUE KEY uk_la_cdate_stockid (cdate, stockid)
+);
+
+CREATE TABLE IF NOT EXISTS db_mighty (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  scores DECIMAL(10,2),
+  times VARCHAR(4),
+  bzf DECIMAL(10,2),
+  cje DECIMAL(15,2),
+  rates DECIMAL(10,2),
+  ozf DECIMAL(10,2),
+  tms VARCHAR(5),
+  lastzf DECIMAL(10,2),
+  INDEX idx_cdate (cdate),
+  UNIQUE KEY uk_mighty_cdate_stockid (cdate, stockid)
+);

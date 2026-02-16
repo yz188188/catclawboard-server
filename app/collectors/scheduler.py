@@ -2,9 +2,11 @@
 """自动定时采集调度器
 
 采集时间表（交易日）:
-  9:26  - bidding  竞价数据（一次）
-  9:30~9:40 - thsdata  涨停反包（连续循环）
-  15:05 - stat     涨停统计（一次）
+  9:26      - bidding        竞价数据（一次）
+  9:30-9:46 - mighty         强势反包实时监控（内含循环，启动一次）
+  9:35      - thsdata        涨停反包（一次）
+  15:05     - stat           涨停统计（一次）
+  15:10     - mighty --close  更新收盘涨幅（一次）
 
 用法:
   python -m app.collectors.scheduler              正常调度模式
@@ -20,6 +22,7 @@ from app.collectors import func
 from app.collectors.stat import collect_stat
 from app.collectors.thsdata import collect_ztdb
 from app.collectors.bidding import collect_bidding
+from app.collectors.mighty import collect_mighty, update_close_price
 from app.database import SessionLocal
 
 # 日志文件路径
@@ -71,6 +74,14 @@ def run_stat(cdate: str, db):
     return collect_stat(cdate, db)
 
 
+def run_mighty(trading_day: str, db):
+    return collect_mighty(trading_day, db)
+
+
+def run_mighty_close(trading_day: str, db):
+    return update_close_price(trading_day, db)
+
+
 def seconds_until(hour: int, minute: int) -> float:
     """计算距离今天指定时间的秒数，如果已过则返回负数"""
     now = datetime.now()
@@ -102,6 +113,8 @@ def run_single_task(name: str):
         "bidding": lambda db: run_bidding(trading_day, db),
         "thsdata": lambda db: run_thsdata(trading_day, db),
         "stat": lambda db: run_stat(cdate, db),
+        "mighty": lambda db: run_mighty(trading_day, db),
+        "mighty_close": lambda db: run_mighty_close(trading_day, db),
     }
 
     if name not in tasks:
@@ -146,21 +159,25 @@ def main():
                     run_task("bidding", lambda db: run_bidding(trading_day, db))
                     done.add("bidding")
 
-                # 9:30-9:40 连续执行 thsdata
-                elif 930 <= hm < 940:
-                    run_task("thsdata", lambda db: run_thsdata(trading_day, db))
-                    # 不 sleep，跑完立刻下一轮
-                    continue
+                # 9:30 启动 mighty 实时监控（一次，内含循环到 9:46 自动退出）
+                elif hm >= 930 and "mighty" not in done:
+                    run_task("mighty", lambda db: run_mighty(trading_day, db))
+                    done.add("mighty")
 
-                # 9:40 标记 thsdata 窗口结束
-                elif hm == 940 and "thsdata_done" not in done:
-                    log("thsdata 采集窗口结束")
-                    done.add("thsdata_done")
+                # 9:35 执行 thsdata 涨停反包（一次）
+                elif hm >= 935 and "thsdata" not in done:
+                    run_task("thsdata", lambda db: run_thsdata(trading_day, db))
+                    done.add("thsdata")
 
                 # 15:05 执行 stat（一次）
                 elif hm >= 1505 and "stat" not in done:
                     run_task("stat", lambda db: run_stat(cdate, db))
                     done.add("stat")
+
+                # 15:10 执行 mighty 收盘更新（一次）
+                elif hm >= 1510 and "mighty_close" not in done:
+                    run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
+                    done.add("mighty_close")
                     log("今日采集全部完成")
                     sleep_until_tomorrow()
                     break
@@ -186,6 +203,7 @@ def run_all_now():
         run_task("bidding", lambda db: run_bidding(trading_day, db))
         run_task("thsdata", lambda db: run_thsdata(trading_day, db))
         run_task("stat", lambda db: run_stat(cdate, db))
+        run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
         log("全部任务执行完成")
     finally:
         func.thslogout()
@@ -200,6 +218,6 @@ if __name__ == "__main__":
         if task_name:
             run_single_task(task_name)
         else:
-            print("用法: python -m app.collectors.scheduler --task <bidding|thsdata|stat>")
+            print("用法: python -m app.collectors.scheduler --task <bidding|thsdata|stat|mighty|mighty_close>")
     else:
         main()
