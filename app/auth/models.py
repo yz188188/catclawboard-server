@@ -11,4 +11,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False)
     password = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="user")
+    subscription_type = Column(String(20), nullable=True, default=None)
+    subscription_start = Column(DateTime, nullable=True, default=None)
+    subscription_end = Column(DateTime, nullable=True, default=None)
     created_at = Column(DateTime, server_default=func.now())

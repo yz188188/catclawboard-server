@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,10 +6,19 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth.models import User
-from app.auth.schemas import LoginRequest, UserCreate, TokenResponse, UserInfo, UserInfoAdmin
+from app.auth.schemas import (
+    LoginRequest,
+    UserCreate,
+    TokenResponse,
+    UserInfo,
+    UserInfoAdmin,
+    SubscriptionUpdate,
+)
 from app.auth.dependencies import create_access_token, get_current_user, get_current_admin
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+SUBSCRIPTION_DAYS = {"monthly": 30, "yearly": 365}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -51,3 +61,57 @@ def delete_user(user_id: int, admin: User = Depends(get_current_admin), db: Sess
     db.delete(user)
     db.commit()
     return {"detail": "已删除"}
+
+
+@router.post("/users/{user_id}/subscription", response_model=UserInfoAdmin)
+def set_subscription(
+    user_id: int,
+    req: SubscriptionUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    if req.subscription_type not in SUBSCRIPTION_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="订阅类型无效，可选: monthly, yearly",
+        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    if user.role == "admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="管理员无需设置订阅")
+
+    days = SUBSCRIPTION_DAYS[req.subscription_type]
+    now = datetime.now()
+
+    if user.subscription_end and user.subscription_end > now:
+        start_from = user.subscription_end
+    else:
+        start_from = now
+        user.subscription_start = now
+
+    user.subscription_type = req.subscription_type
+    user.subscription_end = start_from + timedelta(days=days)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/users/{user_id}/subscription", response_model=UserInfoAdmin)
+def cancel_subscription(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    if user.role == "admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="管理员无需管理订阅")
+
+    user.subscription_type = None
+    user.subscription_start = None
+    user.subscription_end = None
+    db.commit()
+    db.refresh(user)
+    return user

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_subscribed_user
 from app.features.effect.models import MoneyEffect
 from app.features.effect.schemas import EffectItem, EffectListResponse
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/effect", tags=["effect"])
 def get_effect_by_date(
     date: str = Query(..., description="日期 YYYYMMDD"),
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(get_subscribed_user),
 ):
     return db.query(MoneyEffect).filter(MoneyEffect.cdate == date).first()
 
@@ -23,7 +23,7 @@ def get_effect_list(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(get_subscribed_user),
 ):
     total = db.query(MoneyEffect).count()
     rows = (

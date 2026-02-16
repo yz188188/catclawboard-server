@@ -44,3 +44,14 @@ def get_current_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     return user
+
+
+def get_subscribed_user(user: User = Depends(get_current_user)) -> User:
+    if user.role == "admin":
+        return user
+    if not user.subscription_end or user.subscription_end < datetime.now():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="订阅已过期或未订阅，请联系管理员开通",
+        )
+    return user
