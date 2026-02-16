@@ -84,11 +84,16 @@ def get_holiday(year) -> list[str]:
 
 
 def thslogin():
-    """登录同花顺"""
+    """登录同花顺（凭据从 .env 读取）"""
     if THS_iFinDLogin is None:
         print("iFinDPy not available, skipping THS login")
         return
-    result = THS_iFinDLogin("dbywl006", "45Xt1XPC")
+    from app.config import get_settings
+    settings = get_settings()
+    if not settings.THS_USERNAME or not settings.THS_PASSWORD:
+        print("THS 凭据未配置，请在 .env 中设置 THS_USERNAME 和 THS_PASSWORD")
+        return
+    result = THS_iFinDLogin(settings.THS_USERNAME, settings.THS_PASSWORD)
     if result in {0, -201}:
         print("THS 登录成功")
     else:

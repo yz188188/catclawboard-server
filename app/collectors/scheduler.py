@@ -4,12 +4,15 @@
 采集时间表（交易日）:
   9:26      - bidding        竞价数据（一次）
   9:30-9:46 - mighty         强势反包实时监控（内含循环，启动一次）
-  9:35      - thsdata        涨停反包（一次）
   15:05     - stat           涨停统计（一次）
-  15:10     - mighty --close  更新收盘涨幅（一次）
+  15:08     - thsdata        涨停反包 + 大额成交（收盘后全天数据）
+  15:15     - mighty_close   更新收盘涨幅（一次）
+
+注意: thsdata 必须在收盘后执行，因为 THS_RQ 获取实时行情，
+盘中 high/low/amount 不完整，导致振幅和成交额筛选不准确。
 
 用法:
-  python -m app.collectors.scheduler              正常调度模式
+  python -m app.collectors.scheduler              正常调度模式（常驻进程）
   python -m app.collectors.scheduler --now         立即执行所有任务（测试/补采）
   python -m app.collectors.scheduler --task <name>  执行单个任务（供 Windows 任务计划程序调用）
 """
@@ -27,15 +30,22 @@ from app.database import SessionLocal
 
 # 日志文件路径
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "logs")
-LOG_FILE = os.path.join(LOG_DIR, "scheduler.log")
 _log_file = None
 
 
-def setup_logging():
-    """初始化日志文件输出（追加模式）"""
+def setup_logging(task_name: str = None):
+    """初始化日志文件输出（追加模式）
+
+    Args:
+        task_name: 任务名称，指定时日志写入 logs/<task_name>_YYYYMMDD.log
+                   未指定时写入 logs/scheduler_YYYYMMDD.log
+    """
     global _log_file
     os.makedirs(LOG_DIR, exist_ok=True)
-    _log_file = open(LOG_FILE, "a", encoding="utf-8")
+    date_str = datetime.now().strftime("%Y%m%d")
+    prefix = task_name if task_name else "scheduler"
+    log_file_path = os.path.join(LOG_DIR, f"{prefix}_{date_str}.log")
+    _log_file = open(log_file_path, "a", encoding="utf-8")
 
 
 def log(msg: str):
@@ -99,12 +109,15 @@ def sleep_until_tomorrow():
 
 
 def run_single_task(name: str):
-    """执行单个采集任务（供 Windows 任务计划程序调用）"""
-    setup_logging()
+    """执行单个采集任务（供 Windows 任务计划程序调用）
+
+    成功退出码 0，失败退出码 1，便于 Task Scheduler 判断结果。
+    """
+    setup_logging(task_name=name)
     today = datetime.now().strftime("%Y-%m-%d")
     if not func.is_trading_day(today):
         log(f"{today} 非交易日，跳过")
-        return
+        sys.exit(0)
 
     trading_day = today
     cdate = trading_day.replace("-", "")
@@ -119,18 +132,21 @@ def run_single_task(name: str):
 
     if name not in tasks:
         log(f"未知任务: {name}，可选: {', '.join(tasks)}")
-        return
+        sys.exit(1)
 
     log(f"定时任务模式，执行 {name}，交易日: {trading_day}")
     func.thslogin()
     try:
-        run_task(name, tasks[name])
+        success = run_task(name, tasks[name])
     finally:
         func.thslogout()
         log(f"任务 {name} 结束")
 
+    sys.exit(0 if success else 1)
+
 
 def main():
+    setup_logging()
     log("调度器启动，登录 THS...")
     func.thslogin()
 
@@ -164,18 +180,18 @@ def main():
                     run_task("mighty", lambda db: run_mighty(trading_day, db))
                     done.add("mighty")
 
-                # 9:35 执行 thsdata 涨停反包（一次）
-                elif hm >= 935 and "thsdata" not in done:
-                    run_task("thsdata", lambda db: run_thsdata(trading_day, db))
-                    done.add("thsdata")
-
                 # 15:05 执行 stat（一次）
                 elif hm >= 1505 and "stat" not in done:
                     run_task("stat", lambda db: run_stat(cdate, db))
                     done.add("stat")
 
-                # 15:10 执行 mighty 收盘更新（一次）
-                elif hm >= 1510 and "mighty_close" not in done:
+                # 15:08 执行 thsdata 涨停反包（收盘后全天数据）
+                elif hm >= 1508 and "thsdata" not in done:
+                    run_task("thsdata", lambda db: run_thsdata(trading_day, db))
+                    done.add("thsdata")
+
+                # 15:15 执行 mighty 收盘更新（一次）
+                elif hm >= 1515 and "mighty_close" not in done:
                     run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
                     done.add("mighty_close")
                     log("今日采集全部完成")
@@ -193,6 +209,7 @@ def main():
 
 def run_all_now():
     """立即执行所有采集任务（测试/手动补采用）"""
+    setup_logging()
     today = datetime.now().strftime("%Y-%m-%d")
     trading_day = func.get_trading_day(today)
     cdate = trading_day.replace("-", "")
@@ -201,8 +218,8 @@ def run_all_now():
     func.thslogin()
     try:
         run_task("bidding", lambda db: run_bidding(trading_day, db))
-        run_task("thsdata", lambda db: run_thsdata(trading_day, db))
         run_task("stat", lambda db: run_stat(cdate, db))
+        run_task("thsdata", lambda db: run_thsdata(trading_day, db))
         run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
         log("全部任务执行完成")
     finally:

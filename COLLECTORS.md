@@ -87,7 +87,7 @@ python -m app.collectors.bidding 2025-02-14
 
 ### thsdata.py — 涨停反包数据
 
-- **运行时机**: 盘中或收盘后均可（需要实时行情）
+- **运行时机**: 收盘后（15:08+），需要全天完整行情数据
 - **THS API**: `THS_DR`（全A股代码）、`THS_RQ`（实时行情）、`THS_WCQuery`（ST过滤）
 - **依赖**: `db_zt_reson` 中昨日涨停数据
 - **写入表**:
@@ -134,43 +134,64 @@ python -m app.collectors.mighty --close   # 收盘后更新收盘涨幅
 
 ## 定时任务配置（可选）
 
-### 方式一：内置调度器（推荐）
+### 方式一：Windows Task Scheduler（推荐）
 
-项目自带调度器 `scheduler.py`，作为常驻进程自动按时间表执行采集，无需配置 Windows Task Scheduler。
+使用 Windows 任务计划程序，每个任务独立触发，OS 级调度，稳定可靠。
+
+**一键注册：**
+
+```powershell
+# 管理员 PowerShell
+.\scripts\setup_tasks.ps1
+```
+
+**时间表：**
+
+| 时间 | 任务 | 说明 |
+|------|------|------|
+| 9:26 | bidding | 竞价数据 |
+| 9:30 | mighty | 强势反包实时监控（内含16分钟循环） |
+| 15:05 | stat | 涨停统计 |
+| 15:08 | thsdata | 涨停反包 + 大额成交（**收盘后全天数据**） |
+| 15:15 | mighty_close | 更新强势反包收盘涨幅 |
+| 23:00 | cleanup_logs | 清理30天前日志 |
+
+> **为什么 thsdata 在收盘后？** THS_RQ 获取实时行情，盘中 high/low/amount 不完整，
+> 振幅和成交额筛选不准确。收盘后全天数据已定型，筛选最准确。
+
+**手动执行单个任务：**
+
+```bat
+.\scripts\run_task.bat stat
+type logs\stat_20260216.log
+```
+
+**手动补采所有任务：**
 
 ```bash
-# 正常调度模式（常驻进程，按时间表自动执行）
-python -m app.collectors.scheduler
-
-# 立即执行模式（测试/手动补采，立即依次执行所有任务）
 python -m app.collectors.scheduler --now
 ```
 
-`--now` 模式会自动推算最近交易日，依次执行 bidding → thsdata → stat → mighty_close，执行完即退出。适合快速验证或手动补采。
+`--now` 模式自动推算最近交易日，依次执行 bidding → stat → thsdata → mighty_close。
 
-时间表（正常调度模式）：
+非交易日任务自动跳过（秒级退出）。每个任务失败自动重试 2 次。
 
-| 时间 | 任务 | 模式 | 说明 |
-|------|------|------|------|
-| 9:26 | bidding | 单次 | 竞价数据 |
-| 9:30-9:46 | mighty | 启动一次（内含循环） | 强势反包实时监控 |
-| 9:35 | thsdata | 单次 | 涨停反包 + 大成交额股票池 |
-| 15:05 | stat | 单次 | 涨停统计 |
-| 15:10 | mighty_close | 单次 | 更新强势反包收盘涨幅 |
+**查看/删除已注册任务：**
 
-非交易日自动跳过。按 Ctrl+C 停止。详细说明见 `docs/数据采集操作手册.md`。
+```powershell
+Get-ScheduledTask -TaskPath "\CatClawBoard\"
+# 删除所有: Get-ScheduledTask -TaskPath "\CatClawBoard\" | Unregister-ScheduledTask -Confirm:$false
+```
 
-### 方式二：Windows Task Scheduler
+### 方式二：内置调度器（常驻进程）
 
-如果不使用内置调度器，也可以用 Windows 任务计划程序配置自动执行：
+也可以使用内置调度器作为常驻进程运行，但不如 Task Scheduler 稳定（崩溃无自动恢复，sleep 受系统休眠影响）。
 
-| 任务 | 触发时间 | 命令 |
-|------|---------|------|
-| bidding 采集 | 每个交易日 9:20 | `python -m app.collectors.bidding` |
-| mighty 监控 | 每个交易日 9:29 | `python -m app.collectors.mighty` |
-| thsdata 采集 | 每个交易日 9:35 | `python -m app.collectors.thsdata` |
-| stat 采集 | 每个交易日 15:05 | `python -m app.collectors.stat` |
-| mighty 收盘 | 每个交易日 15:10 | `python -m app.collectors.mighty --close` |
+```bash
+python -m app.collectors.scheduler
+```
+
+按 Ctrl+C 停止。
 
 ## Cloud SQL 连接信息
 
