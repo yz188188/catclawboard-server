@@ -70,6 +70,18 @@ def seed_admin():
         db.close()
 
 
+@app.get("/api/latest-date")
+def latest_date():
+    import exchange_calendars as xcals
+    import pandas as pd
+    from datetime import date
+
+    cal = xcals.get_calendar("XSHG")
+    today = pd.Timestamp(date.today())
+    d = cal.date_to_session(today, direction="previous")
+    return {"date": d.strftime("%Y%m%d")}
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
