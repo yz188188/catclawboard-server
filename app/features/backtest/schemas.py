@@ -98,3 +98,50 @@ class BacktestRunResponse(BaseModel):
     stats: dict
     equity: list[dict]
     trades: list[dict]
+
+
+# --- 公式对比 ---
+
+class FormulaCoeffs(BaseModel):
+    w_chg: float = 20      # chg_1min 权重
+    w_bzf: float = 10      # changeRatio 权重
+    w_flow: float = 0.05   # flow_velocity 系数
+    w_main: float = 1.0    # 主板系数
+    w_20cm: float = 0.6    # 创业板/科创板系数
+
+
+class CompareRequest(BaseModel):
+    strategy_name: str
+    start_date: str
+    end_date: str
+    filters: dict[str, FilterConfig] = {}
+    old_threshold: int = 100
+    new_threshold: int = 80
+    coeffs: FormulaCoeffs = FormulaCoeffs()
+
+
+class FormulaResult(BaseModel):
+    label: str
+    threshold: int
+    stats: dict
+    equity: list[dict]
+    trades: list[dict]
+
+
+class DiffItem(BaseModel):
+    stockid: str
+    stockname: str
+    entry_date: str
+    old_score: int
+    new_score: int
+    return_pct: float
+    rates: float | None = None
+    times: str = ""
+    mins: int = 0
+    lastzf: float | None = None
+
+
+class CompareResponse(BaseModel):
+    old_formula: FormulaResult
+    new_formula: FormulaResult
+    diff: dict
