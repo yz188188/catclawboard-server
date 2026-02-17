@@ -42,6 +42,16 @@ app.include_router(backtest_router)
 
 
 @app.on_event("startup")
+def create_tables():
+    from app.database import engine, Base
+    # 确保所有模型已导入，以便 Base.metadata 包含它们
+    import app.auth.models  # noqa: F401
+    import app.backtest.models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    logger.info("数据库表检查/创建完成")
+
+
+@app.on_event("startup")
 def seed_admin():
     from app.config import get_settings
     from app.database import SessionLocal
