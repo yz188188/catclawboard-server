@@ -1,13 +1,22 @@
 # coding:utf-8
-"""强势反包数据采集 — 原 python/mighty.py 迁移
+"""竞价强势数据采集
 
-实时监控模式 (9:30-9:46): 每3秒扫描一次高成交额股票池，筛选强势分时股
+股票池来源: db_zt_reson 中昨日全部涨停股
+自行检查竞价条件:
+  1. 开盘涨幅 >= 3%（ozf = (open-preClose)/preClose）
+  2. 成交额占比 >= 10%（当前成交额/昨日成交额）
+  3. 盘中振幅 >= 3%（降低，避免与竞价涨幅叠加）
+  4. 1分钟涨速 >= 1.5%
+  5. 评分 >= 100
+昨日成交额: db_zt_reson.cje（单位: 亿）× 1e8 → 元
+
+实时监控模式 (9:30-9:46): 每3秒扫描一次
 收盘更新模式 (--close):   更新入选股票的收盘涨幅
 
 用法:
-  python -m app.collectors.mighty                     实时监控 (9:30-9:46)
-  python -m app.collectors.mighty --close             收盘后更新当日收盘涨幅
-  python -m app.collectors.mighty 2025-02-14 --close  指定日期更新收盘涨幅
+  python -m app.collectors.jjmighty                     实时监控 (9:30-9:46)
+  python -m app.collectors.jjmighty --close             收盘后更新收盘涨幅
+  python -m app.collectors.jjmighty 2025-02-14 --close  指定日期更新收盘涨幅
 """
 import json
 import sys
@@ -17,7 +26,8 @@ from datetime import datetime, time as dt_time
 from sqlalchemy.orm import Session
 
 from app.collectors import func
-from app.features.mighty.models import LargeAmount, Mighty
+from app.collectors.models import ZtReson
+from app.features.jjmighty.models import Jjmighty
 
 try:
     from iFinDPy import THS_RQ
@@ -31,11 +41,12 @@ def should_execute() -> bool:
     return dt_time(9, 30) <= now <= dt_time(9, 46)
 
 
-def collect_mighty(trading_day: str, db: Session) -> dict:
-    """强势反包实时监控采集
+def collect_jjmighty(trading_day: str, db: Session) -> dict:
+    """竞价强势实时监控采集
 
-    从 db_large_amount 读取昨日成交额 > 8亿的股票池，
-    在 9:30-9:46 期间每 3 秒扫描一轮，筛选强势分时股写入 db_mighty。
+    从 db_zt_reson 读取昨日全部涨停股作为股票池，
+    在 9:30-9:46 期间每 3 秒扫描一轮，
+    自行检查竞价涨幅+mighty盘中逻辑，筛选写入 db_jjmighty。
 
     Args:
         trading_day: 交易日 YYYY-MM-DD 格式
@@ -51,17 +62,22 @@ def collect_mighty(trading_day: str, db: Session) -> dict:
     yesterday_str = func.get_previous_trading_day(trading_day)
     lsdate = yesterday_str.replace("-", "")
 
-    # 读取昨日大成交额股票池
-    la_records = db.query(LargeAmount).filter(LargeAmount.cdate == lsdate).all()
-    if not la_records:
-        return {"error": f"db_large_amount 中无 {lsdate} 的数据，请先运行 thsdata 采集"}
+    # 读取昨日全部涨停股
+    zt_records = db.query(ZtReson).filter(ZtReson.cdate == lsdate).all()
+    if not zt_records:
+        return {"error": f"db_zt_reson 中无 {lsdate} 的数据"}
 
+    # stock_pool: stockid -> {amount_yuan, lbs}
+    # cje 单位是亿，转换为元
     stock_pool = {}
-    for rec in la_records:
-        stock_pool[rec.stockid] = float(rec.amount)
+    for rec in zt_records:
+        stock_pool[rec.stockid] = {
+            "amount": float(rec.cje) * 1e8,
+            "lbs": rec.lbs,
+        }
 
     codes_list = ", ".join(stock_pool.keys())
-    print(f"强势反包监控启动，股票池: {len(stock_pool)} 只，日期: {cdate}")
+    print(f"竞价强势监控启动，股票池: {len(stock_pool)} 只，日期: {cdate}")
 
     total_found = 0
     loop_count = 0
@@ -89,9 +105,8 @@ def collect_mighty(trading_day: str, db: Session) -> dict:
         for item in jdata["tables"]:
             thscode = item["thscode"]
 
-            # 检查是否已入选（UNIQUE约束也会防止重复，但提前跳过更高效）
-            exists = db.query(Mighty).filter(
-                Mighty.cdate == cdate, Mighty.stockid == thscode
+            exists = db.query(Jjmighty).filter(
+                Jjmighty.cdate == cdate, Jjmighty.stockid == thscode
             ).first()
             if exists:
                 continue
@@ -111,22 +126,29 @@ def collect_mighty(trading_day: str, db: Session) -> dict:
             if upper_limit[0] is not None and float(latest[0]) == float(upper_limit[0]):
                 continue
 
-            # 成交额占比（换手率）: 当前成交额 / 昨日总成交额 * 100
-            ls_amount = stock_pool[thscode]
+            # 条件1: 开盘涨幅 >= 3%
+            ozf = round(float(open_price[0]) / float(pre_close[0]) * 100 - 100, 2)
+            if ozf < 3:
+                continue
+
+            # 条件2: 成交额占比 >= 7%
+            ls_amount = stock_pool[thscode]["amount"]
+            if ls_amount <= 0:
+                continue
             cje_rate = round(amount[0] / ls_amount * 100, 2)
             if cje_rate < 7:
                 continue
 
-            # 振幅: (最新价 - 开盘价) / 开盘价 * 100
+            # 条件3: 盘中振幅 >= 3%（降低，避免与竞价涨幅叠加）
             zhenfu = round(float(latest[0]) / float(open_price[0]) * 100 - 100, 2)
             if zhenfu < 3:
                 continue
 
-            # 1分钟涨速
+            # 条件4: 1分钟涨速 >= 1%
             if not chg_1min[0] or chg_1min[0] < 1:
                 continue
 
-            # 板块系数: 创业板(30)/科创板(68) = 0.6，主板 = 1.0
+            # 板块系数
             thscoder = thscode.split(".")
             code_prefix = thscoder[0][:2]
             zs_times = 0.6 if code_prefix in ("68", "30") else 1.0
@@ -134,18 +156,18 @@ def collect_mighty(trading_day: str, db: Session) -> dict:
             # 成交额（万）
             cje = round(amount[0] / 10000)
 
-            # 评分: (涨速 * 20 + 最新涨幅 * 10) * 板块系数 + 成交额(万) * 0.001
+            # 评分
             score = round((chg_1min[0] * 20 + change_ratio[0] * 10) * zs_times + cje * 0.001)
+
+            # 条件5: 评分 >= 100
             if score < 100:
                 continue
 
-            # 开盘涨幅
-            ozf = round(float(open_price[0]) / float(pre_close[0]) * 100 - 100, 2)
-
-            record = Mighty(
+            record = Jjmighty(
                 cdate=cdate,
                 stockid=thscode,
                 stockname=thscoder[0],
+                lbs=stock_pool[thscode]["lbs"],
                 scores=score,
                 times=hm,
                 bzf=round(change_ratio[0], 2),
@@ -160,29 +182,22 @@ def collect_mighty(trading_day: str, db: Session) -> dict:
             db.add(record)
             db.commit()
             total_found += 1
-            print(f"入选: {thscode} 评分={score} 涨幅={round(change_ratio[0], 2)}% "
-                  f"涨速={chg_1min[0]}% 换手率={cje_rate}% 时间={hm}")
+            print(f"入选: {thscode} {stock_pool[thscode]['lbs']}连板 评分={score} "
+                  f"开盘涨幅={ozf}% 涨幅={round(change_ratio[0], 2)}% "
+                  f"换手率={cje_rate}% 时间={hm}")
 
-    print(f"监控结束，共 {loop_count} 轮，入选 {total_found} 只")
+    print(f"竞价强势监控结束，共 {loop_count} 轮，入选 {total_found} 只")
     return {"date": cdate, "loops": loop_count, "found": total_found}
 
 
 def update_close_price(trading_day: str, db: Session) -> dict:
-    """收盘后更新入选股票的收盘涨幅
-
-    Args:
-        trading_day: 交易日 YYYY-MM-DD 格式
-        db: SQLAlchemy Session
-
-    Returns:
-        统计信息
-    """
+    """收盘后更新入选股票的收盘涨幅"""
     if THS_RQ is None:
         return {"error": "iFinDPy not available"}
 
     cdate = datetime.strptime(trading_day, "%Y-%m-%d").strftime("%Y%m%d")
 
-    records = db.query(Mighty).filter(Mighty.cdate == cdate).all()
+    records = db.query(Jjmighty).filter(Jjmighty.cdate == cdate).all()
     if not records:
         return {"date": cdate, "updated": 0, "msg": "无入选记录"}
 
@@ -210,7 +225,6 @@ def update_close_price(trading_day: str, db: Session) -> dict:
 if __name__ == "__main__":
     from app.database import SessionLocal
 
-    # 解析参数
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     close_mode = "--close" in sys.argv
 
@@ -222,10 +236,10 @@ if __name__ == "__main__":
     try:
         if close_mode:
             result = update_close_price(trading_day, db)
-            print(f"收盘涨幅更新完成: {result}")
+            print(f"竞价强势收盘涨幅更新完成: {result}")
         else:
-            result = collect_mighty(trading_day, db)
-            print(f"强势反包采集完成: {result}")
+            result = collect_jjmighty(trading_day, db)
+            print(f"竞价强势采集完成: {result}")
     finally:
         db.close()
         func.thslogout()

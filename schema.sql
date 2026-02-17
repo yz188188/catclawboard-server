@@ -91,8 +91,94 @@ CREATE TABLE IF NOT EXISTS db_mighty (
   cje DECIMAL(15,2),
   rates DECIMAL(10,2),
   ozf DECIMAL(10,2),
+  zhenfu DECIMAL(10,2),
+  chg_1min DECIMAL(10,2),
+  zs_times DECIMAL(3,1),
   tms VARCHAR(5),
   lastzf DECIMAL(10,2),
   INDEX idx_cdate (cdate),
   UNIQUE KEY uk_mighty_cdate_stockid (cdate, stockid)
+);
+
+CREATE TABLE IF NOT EXISTS db_lianban (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  lbs INT DEFAULT 0,
+  scores DECIMAL(10,2),
+  times VARCHAR(4),
+  bzf DECIMAL(10,2),
+  cje DECIMAL(15,2),
+  rates DECIMAL(10,2),
+  ozf DECIMAL(10,2),
+  zhenfu DECIMAL(10,2),
+  chg_1min DECIMAL(10,2),
+  zs_times DECIMAL(3,1),
+  tms VARCHAR(5),
+  lastzf DECIMAL(10,2),
+  UNIQUE KEY uk_lianban_cdate_stockid (cdate, stockid),
+  INDEX idx_lianban_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_jjmighty (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cdate VARCHAR(8) NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  lbs INT DEFAULT 0,
+  scores DECIMAL(10,2),
+  times VARCHAR(4),
+  bzf DECIMAL(10,2),
+  cje DECIMAL(15,2),
+  rates DECIMAL(10,2),
+  ozf DECIMAL(10,2),
+  zhenfu DECIMAL(10,2),
+  chg_1min DECIMAL(10,2),
+  zs_times DECIMAL(3,1),
+  tms VARCHAR(5),
+  lastzf DECIMAL(10,2),
+  UNIQUE KEY uk_jjmighty_cdate_stockid (cdate, stockid),
+  INDEX idx_jjmighty_cdate (cdate)
+);
+
+CREATE TABLE IF NOT EXISTS db_backtest_runs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  strategy_name VARCHAR(50) NOT NULL,
+  strategy_label VARCHAR(100),
+  start_date VARCHAR(8) NOT NULL,
+  end_date VARCHAR(8) NOT NULL,
+  params JSON,
+  total_trades INT DEFAULT 0,
+  win_trades INT DEFAULT 0,
+  win_rate DECIMAL(10,4),
+  avg_return DECIMAL(10,4),
+  total_return DECIMAL(10,4),
+  max_drawdown DECIMAL(10,4),
+  sharpe_ratio DECIMAL(10,4),
+  profit_factor DECIMAL(10,4),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_bt_strategy (strategy_name)
+);
+
+CREATE TABLE IF NOT EXISTS db_backtest_trades (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  run_id INT NOT NULL,
+  stockid VARCHAR(20) NOT NULL,
+  stockname VARCHAR(50),
+  entry_date VARCHAR(8) NOT NULL,
+  return_pct DECIMAL(10,4),
+  signal_data JSON,
+  INDEX idx_trade_run (run_id),
+  FOREIGN KEY (run_id) REFERENCES db_backtest_runs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS db_backtest_equity (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  run_id INT NOT NULL,
+  tdate VARCHAR(8) NOT NULL,
+  equity DECIMAL(15,4) NOT NULL,
+  drawdown DECIMAL(10,4),
+  UNIQUE KEY uk_equity_run_date (run_id, tdate),
+  FOREIGN KEY (run_id) REFERENCES db_backtest_runs(id) ON DELETE CASCADE
 );

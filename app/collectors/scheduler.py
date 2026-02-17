@@ -26,6 +26,8 @@ from app.collectors.stat import collect_stat
 from app.collectors.thsdata import collect_ztdb
 from app.collectors.bidding import collect_bidding
 from app.collectors.mighty import collect_mighty, update_close_price
+from app.collectors.lianban import collect_lianban, update_close_price as lianban_update_close
+from app.collectors.jjmighty import collect_jjmighty, update_close_price as jjmighty_update_close
 from app.database import SessionLocal
 
 # 日志文件路径
@@ -92,6 +94,22 @@ def run_mighty_close(trading_day: str, db):
     return update_close_price(trading_day, db)
 
 
+def run_lianban(trading_day: str, db):
+    return collect_lianban(trading_day, db)
+
+
+def run_lianban_close(trading_day: str, db):
+    return lianban_update_close(trading_day, db)
+
+
+def run_jjmighty(trading_day: str, db):
+    return collect_jjmighty(trading_day, db)
+
+
+def run_jjmighty_close(trading_day: str, db):
+    return jjmighty_update_close(trading_day, db)
+
+
 def seconds_until(hour: int, minute: int) -> float:
     """计算距离今天指定时间的秒数，如果已过则返回负数"""
     now = datetime.now()
@@ -128,6 +146,10 @@ def run_single_task(name: str):
         "stat": lambda db: run_stat(cdate, db),
         "mighty": lambda db: run_mighty(trading_day, db),
         "mighty_close": lambda db: run_mighty_close(trading_day, db),
+        "lianban": lambda db: run_lianban(trading_day, db),
+        "lianban_close": lambda db: run_lianban_close(trading_day, db),
+        "jjmighty": lambda db: run_jjmighty(trading_day, db),
+        "jjmighty_close": lambda db: run_jjmighty_close(trading_day, db),
     }
 
     if name not in tasks:
@@ -175,8 +197,12 @@ def main():
                     run_task("bidding", lambda db: run_bidding(trading_day, db))
                     done.add("bidding")
 
-                # 9:30 启动 mighty 实时监控（一次，内含循环到 9:46 自动退出）
+                # 9:30 启动实时监控（mighty/lianban/jjmighty 各含循环到 9:46 自动退出）
                 elif hm >= 930 and "mighty" not in done:
+                    run_task("lianban", lambda db: run_lianban(trading_day, db))
+                    done.add("lianban")
+                    run_task("jjmighty", lambda db: run_jjmighty(trading_day, db))
+                    done.add("jjmighty")
                     run_task("mighty", lambda db: run_mighty(trading_day, db))
                     done.add("mighty")
 
@@ -190,10 +216,14 @@ def main():
                     run_task("thsdata", lambda db: run_thsdata(trading_day, db))
                     done.add("thsdata")
 
-                # 15:15 执行 mighty 收盘更新（一次）
+                # 15:15 执行收盘更新（mighty/lianban/jjmighty）
                 elif hm >= 1515 and "mighty_close" not in done:
                     run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
                     done.add("mighty_close")
+                    run_task("lianban_close", lambda db: run_lianban_close(trading_day, db))
+                    done.add("lianban_close")
+                    run_task("jjmighty_close", lambda db: run_jjmighty_close(trading_day, db))
+                    done.add("jjmighty_close")
                     log("今日采集全部完成")
                     sleep_until_tomorrow()
                     break
@@ -221,6 +251,8 @@ def run_all_now():
         run_task("stat", lambda db: run_stat(cdate, db))
         run_task("thsdata", lambda db: run_thsdata(trading_day, db))
         run_task("mighty_close", lambda db: run_mighty_close(trading_day, db))
+        run_task("lianban_close", lambda db: run_lianban_close(trading_day, db))
+        run_task("jjmighty_close", lambda db: run_jjmighty_close(trading_day, db))
         log("全部任务执行完成")
     finally:
         func.thslogout()

@@ -1,11 +1,12 @@
 from pydantic import BaseModel
 
 
-class MightyItem(BaseModel):
+class LianbanItem(BaseModel):
     id: int
     cdate: str
     stockid: str
     stockname: str | None = None
+    lbs: int | None = None
     scores: float | None = None
     times: str | None = None
     bzf: float | None = None
@@ -22,8 +23,8 @@ class MightyItem(BaseModel):
         from_attributes = True
 
 
-class MightyListResponse(BaseModel):
+class LianbanListResponse(BaseModel):
     total: int
     page: int
     size: int
-    items: list[MightyItem]
+    items: list[LianbanItem]

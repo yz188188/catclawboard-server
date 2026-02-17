@@ -9,6 +9,9 @@ from app.features.jjztdt.router import router as jjztdt_router
 from app.features.jjbvol.router import router as jjbvol_router
 from app.features.effect.router import router as effect_router
 from app.features.mighty.router import router as mighty_router
+from app.features.lianban.router import router as lianban_router
+from app.features.jjmighty.router import router as jjmighty_router
+from app.features.backtest.router import router as backtest_router
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +36,9 @@ app.include_router(jjztdt_router)
 app.include_router(jjbvol_router)
 app.include_router(effect_router)
 app.include_router(mighty_router)
+app.include_router(lianban_router)
+app.include_router(jjmighty_router)
+app.include_router(backtest_router)
 
 
 @app.on_event("startup")
