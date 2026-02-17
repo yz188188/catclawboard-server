@@ -42,6 +42,19 @@ GRID_RANGES = {
     "time_end": ["0935", "0940", "0946"],
 }
 
+# 过滤器注册表：数据驱动的过滤逻辑
+FILTER_REGISTRY = {
+    "min_score":    {"attr": "scores",   "op": ">="},
+    "min_rate":     {"attr": "rates",    "op": ">="},
+    "min_bzf":      {"attr": "bzf",      "op": ">="},
+    "max_bzf":      {"attr": "bzf",      "op": "<="},
+    "min_zhenfu":   {"attr": "zhenfu",   "op": ">="},
+    "min_chg_1min": {"attr": "chg_1min", "op": ">="},
+    "time_start":   {"attr": "times",    "op": ">="},
+    "time_end":     {"attr": "times",    "op": "<="},
+    "min_lbs":      {"attr": "lbs",      "op": ">="},
+}
+
 
 @dataclass
 class Trade:
@@ -52,12 +65,78 @@ class Trade:
     signal_data: dict
 
 
+def params_to_filters(params: dict) -> dict:
+    """旧 flat params 转新 filters 格式（CLI 兼容）
+
+    Args:
+        params: {"min_score": 100, "min_rate": 10, ...}
+
+    Returns:
+        {"min_score": {"enabled": True, "value": 100}, ...}
+    """
+    filters = {}
+    for key, value in params.items():
+        if key in FILTER_REGISTRY:
+            filters[key] = {"enabled": True, "value": value}
+    return filters
+
+
+def apply_filters(rec, filters: dict) -> bool:
+    """根据 filters 配置过滤单条记录
+
+    Args:
+        rec: 数据库记录（Model 实例）
+        filters: {"min_score": {"enabled": True, "value": 100}, ...}
+
+    Returns:
+        True 通过过滤，False 被过滤掉
+    """
+    for key, config in filters.items():
+        if not config.get("enabled", True):
+            continue
+
+        reg = FILTER_REGISTRY.get(key)
+        if not reg:
+            continue
+
+        attr_name = reg["attr"]
+        op = reg["op"]
+        threshold = config["value"]
+
+        # 获取记录属性值
+        if not hasattr(rec, attr_name):
+            continue
+
+        raw_value = getattr(rec, attr_name)
+
+        # NULL 值：times 字段空字符串视为不通过，数值字段跳过过滤
+        if attr_name == "times":
+            val = raw_value or ""
+            threshold_str = str(threshold)
+            if op == ">=" and val < threshold_str:
+                return False
+            if op == "<=" and val > threshold_str:
+                return False
+        else:
+            if raw_value is None:
+                continue
+            val = float(raw_value)
+            threshold_f = float(threshold)
+            if op == ">=" and val < threshold_f:
+                return False
+            if op == "<=" and val > threshold_f:
+                return False
+
+    return True
+
+
 def generate_trades(
     db: Session,
     strategy_name: str,
     start_date: str,
     end_date: str,
     params: dict | None = None,
+    filters: dict | None = None,
 ) -> list[Trade]:
     """从对应表读取信号，按参数过滤，计算每笔收益
 
@@ -66,7 +145,8 @@ def generate_trades(
         strategy_name: 策略名称 (mighty/lianban/jjmighty)
         start_date: 起始日期 YYYYMMDD
         end_date: 结束日期 YYYYMMDD
-        params: 回测参数，None 则使用默认值
+        params: 旧格式回测参数（CLI 兼容），None 则使用默认值
+        filters: 新格式过滤配置，优先级高于 params
 
     Returns:
         交易列表
@@ -75,16 +155,13 @@ def generate_trades(
         raise ValueError(f"未知策略: {strategy_name}，可选: {list(STRATEGIES.keys())}")
 
     Model = STRATEGIES[strategy_name]["model"]
-    p = {**DEFAULT_PARAMS, **(params or {})}
 
-    min_score = float(p["min_score"])
-    min_rate = float(p["min_rate"])
-    min_bzf = float(p["min_bzf"])
-    max_bzf = float(p["max_bzf"])
-    min_zhenfu = float(p["min_zhenfu"])
-    min_chg_1min = float(p["min_chg_1min"])
-    time_start = str(p["time_start"])
-    time_end = str(p["time_end"])
+    # 确定过滤条件：filters 优先，否则从 params 转换
+    if filters is not None:
+        active_filters = filters
+    else:
+        p = {**DEFAULT_PARAMS, **(params or {})}
+        active_filters = params_to_filters(p)
 
     # 查询日期范围内的所有记录
     query = (
@@ -96,45 +173,24 @@ def generate_trades(
 
     trades = []
     for rec in records:
-        # 参数过滤
-        score = float(rec.scores) if rec.scores is not None else 0
-        if score < min_score:
-            continue
-
-        rate = float(rec.rates) if rec.rates is not None else 0
-        if rate < min_rate:
+        if not apply_filters(rec, active_filters):
             continue
 
         bzf = float(rec.bzf) if rec.bzf is not None else 0
-        if bzf < min_bzf or bzf > max_bzf:
-            continue
-
-        # 振幅过滤（NULL 旧数据跳过过滤）
-        if rec.zhenfu is not None and float(rec.zhenfu) < min_zhenfu:
-            continue
-
-        # 1分钟涨速过滤（NULL 旧数据跳过过滤）
-        if rec.chg_1min is not None and float(rec.chg_1min) < min_chg_1min:
-            continue
-
-        times = rec.times or ""
-        if times < time_start or times > time_end:
-            continue
-
         # 收益 = 收盘涨幅 - 入选时涨幅
         return_pct = float(rec.lastzf) - bzf
 
         signal_data = {
-            "scores": score,
+            "scores": float(rec.scores) if rec.scores is not None else None,
             "bzf": bzf,
             "lastzf": float(rec.lastzf),
-            "rates": rate,
+            "rates": float(rec.rates) if rec.rates is not None else None,
             "ozf": float(rec.ozf) if rec.ozf is not None else None,
             "cje": float(rec.cje) if rec.cje is not None else None,
             "zhenfu": float(rec.zhenfu) if rec.zhenfu is not None else None,
             "chg_1min": float(rec.chg_1min) if rec.chg_1min is not None else None,
             "zs_times": float(rec.zs_times) if rec.zs_times is not None else None,
-            "times": times,
+            "times": rec.times or "",
         }
         # lbs field for lianban/jjmighty
         if hasattr(rec, "lbs") and rec.lbs is not None:

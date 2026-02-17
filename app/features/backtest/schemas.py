@@ -1,6 +1,11 @@
 from pydantic import BaseModel
 
 
+class FilterConfig(BaseModel):
+    enabled: bool = True
+    value: float | str
+
+
 class BacktestRunItem(BaseModel):
     id: int
     strategy_name: str
@@ -51,3 +56,45 @@ class BacktestEquityItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- 策略配置 CRUD ---
+
+class StrategyCreate(BaseModel):
+    name: str
+    strategy_name: str
+    filters: dict[str, FilterConfig]
+
+
+class StrategyUpdate(BaseModel):
+    name: str | None = None
+    filters: dict[str, FilterConfig] | None = None
+
+
+class StrategyItem(BaseModel):
+    id: int
+    name: str
+    strategy_name: str
+    filters: dict
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- 运行回测 ---
+
+class BacktestRunRequest(BaseModel):
+    strategy_name: str
+    start_date: str
+    end_date: str
+    filters: dict[str, FilterConfig]
+    save: bool = False
+
+
+class BacktestRunResponse(BaseModel):
+    run_id: int | None = None
+    stats: dict
+    equity: list[dict]
+    trades: list[dict]

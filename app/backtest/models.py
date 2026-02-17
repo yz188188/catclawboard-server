@@ -37,6 +37,17 @@ class BacktestTrade(Base):
     signal_data = Column(JSON)
 
 
+class BacktestStrategy(Base):
+    __tablename__ = "db_backtest_strategies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    strategy_name = Column(String(50), nullable=False)
+    filters = Column(JSON, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+
 class BacktestEquity(Base):
     __tablename__ = "db_backtest_equity"
 
