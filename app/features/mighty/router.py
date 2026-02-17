@@ -1,36 +1,25 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth.dependencies import get_subscribed_user
 from app.features.mighty.models import Mighty
 from app.features.mighty.schemas import MightyItem, MightyListResponse
+from app.features.shared.filters import get_filters_for_display, apply_strategy_filters
 
 router = APIRouter(prefix="/api/mighty", tags=["mighty"])
-
-
-def _apply_filters(query, min_score, min_rate, min_zhenfu, min_chg):
-    """对查询应用过滤条件，兼容历史数据（新字段为 NULL 时跳过过滤）"""
-    query = query.filter(Mighty.scores >= min_score)
-    query = query.filter(Mighty.rates >= min_rate)
-    query = query.filter(or_(Mighty.zhenfu.is_(None), Mighty.zhenfu >= min_zhenfu))
-    query = query.filter(or_(Mighty.chg_1min.is_(None), Mighty.chg_1min >= min_chg))
-    return query
 
 
 @router.get("", response_model=list[MightyItem])
 def get_mighty_by_date(
     date: str = Query(..., description="日期 YYYYMMDD"),
-    min_score: float = Query(100, description="最低评分"),
-    min_rate: float = Query(10, description="最低换手率%"),
-    min_zhenfu: float = Query(5, description="最低振幅%"),
-    min_chg: float = Query(1.5, description="最低1分钟涨速%"),
+    strategy_id: int | None = Query(None, description="策略配置ID"),
     db: Session = Depends(get_db),
     _=Depends(get_subscribed_user),
 ):
+    filters = get_filters_for_display(db, "mighty", strategy_id)
     query = db.query(Mighty).filter(Mighty.cdate == date)
-    query = _apply_filters(query, min_score, min_rate, min_zhenfu, min_chg)
+    query = apply_strategy_filters(query, Mighty, filters, strategy_name="mighty")
     rows = query.order_by(Mighty.scores.desc()).all()
     return rows
 
@@ -39,15 +28,13 @@ def get_mighty_by_date(
 def get_mighty_list(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    min_score: float = Query(100, description="最低评分"),
-    min_rate: float = Query(10, description="最低换手率%"),
-    min_zhenfu: float = Query(5, description="最低振幅%"),
-    min_chg: float = Query(1.5, description="最低1分钟涨速%"),
+    strategy_id: int | None = Query(None, description="策略配置ID"),
     db: Session = Depends(get_db),
     _=Depends(get_subscribed_user),
 ):
+    filters = get_filters_for_display(db, "mighty", strategy_id)
     query = db.query(Mighty)
-    query = _apply_filters(query, min_score, min_rate, min_zhenfu, min_chg)
+    query = apply_strategy_filters(query, Mighty, filters, strategy_name="mighty")
     total = query.count()
     rows = (
         query

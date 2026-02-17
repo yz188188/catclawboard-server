@@ -43,16 +43,18 @@ GRID_RANGES = {
 }
 
 # 过滤器注册表：数据驱动的过滤逻辑
+# null_pass: True 表示字段为 NULL 时跳过过滤（兼容旧数据），False 表示 NULL 不通过
 FILTER_REGISTRY = {
-    "min_score":    {"attr": "scores",   "op": ">="},
-    "min_rate":     {"attr": "rates",    "op": ">="},
-    "min_bzf":      {"attr": "bzf",      "op": ">="},
-    "max_bzf":      {"attr": "bzf",      "op": "<="},
-    "min_zhenfu":   {"attr": "zhenfu",   "op": ">="},
-    "min_chg_1min": {"attr": "chg_1min", "op": ">="},
+    "min_score":    {"attr": "scores",   "op": ">=", "null_pass": False},
+    "min_rate":     {"attr": "rates",    "op": ">=", "null_pass": False},
+    "min_bzf":      {"attr": "bzf",      "op": ">=", "null_pass": True},
+    "max_bzf":      {"attr": "bzf",      "op": "<=", "null_pass": True},
+    "min_zhenfu":   {"attr": "zhenfu",   "op": ">=", "null_pass": True},
+    "min_chg_1min": {"attr": "chg_1min", "op": ">=", "null_pass": True},
     "time_start":   {"attr": "times",    "op": ">="},
     "time_end":     {"attr": "times",    "op": "<="},
-    "min_lbs":      {"attr": "lbs",      "op": ">="},
+    "min_lbs":      {"attr": "lbs",      "op": ">=", "null_pass": True},
+    "min_ozf":      {"attr": "ozf",      "op": ">=", "null_pass": True},
 }
 
 

@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.auth.dependencies import get_current_admin
+from app.auth.dependencies import get_current_admin, get_subscribed_user
 from app.backtest.models import BacktestRun, BacktestTrade, BacktestEquity, BacktestStrategy
 from app.backtest.strategy import generate_trades, STRATEGIES
 from app.backtest.engine import compute_stats, build_equity_curve, save_backtest
+from app.features.shared.filters import STRATEGY_ALLOWED_FILTERS
 from app.features.backtest.schemas import (
     BacktestRunItem,
     BacktestRunListResponse,
@@ -117,6 +118,23 @@ def list_strategies(
     return rows
 
 
+@router.get("/strategies/by-type/{strategy_name}", response_model=list[StrategyItem])
+def list_strategies_by_type(
+    strategy_name: str,
+    db: Session = Depends(get_db),
+    _=Depends(get_subscribed_user),
+):
+    if strategy_name not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"未知策略: {strategy_name}")
+    rows = (
+        db.query(BacktestStrategy)
+        .filter(BacktestStrategy.strategy_name == strategy_name)
+        .order_by(BacktestStrategy.updated_at.desc())
+        .all()
+    )
+    return rows
+
+
 @router.post("/strategies", response_model=StrategyItem)
 def create_strategy(
     body: StrategyCreate,
@@ -125,6 +143,14 @@ def create_strategy(
 ):
     if body.strategy_name not in STRATEGIES:
         raise HTTPException(status_code=400, detail=f"未知策略: {body.strategy_name}")
+
+    allowed = STRATEGY_ALLOWED_FILTERS.get(body.strategy_name, set())
+    invalid_keys = set(body.filters.keys()) - allowed
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"过滤器 {invalid_keys} 不适用于策略 {body.strategy_name}",
+        )
 
     existing = db.query(BacktestStrategy).filter(BacktestStrategy.name == body.name).first()
     if existing:
@@ -163,6 +189,13 @@ def update_strategy(
         strategy.name = body.name
 
     if body.filters is not None:
+        allowed = STRATEGY_ALLOWED_FILTERS.get(strategy.strategy_name, set())
+        invalid_keys = set(body.filters.keys()) - allowed
+        if invalid_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=f"过滤器 {invalid_keys} 不适用于策略 {strategy.strategy_name}",
+            )
         strategy.filters = {k: v.model_dump() for k, v in body.filters.items()}
 
     db.commit()
