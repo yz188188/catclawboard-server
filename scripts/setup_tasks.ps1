@@ -42,6 +42,22 @@ $tasks = @(
         TimeLimit   = 30
     },
     @{
+        Name        = "CatClaw_lianban"
+        Hour        = 9
+        Minute      = 30
+        Script      = "task_lianban.bat"
+        Description = "连板反包实时监控 (9:30，内含16分钟循环)"
+        TimeLimit   = 30
+    },
+    @{
+        Name        = "CatClaw_jjmighty"
+        Hour        = 9
+        Minute      = 30
+        Script      = "task_jjmighty.bat"
+        Description = "竞价强势实时监控 (9:30，内含16分钟循环)"
+        TimeLimit   = 30
+    },
+    @{
         Name        = "CatClaw_stat"
         Hour        = 15
         Minute      = 5
@@ -63,6 +79,22 @@ $tasks = @(
         Minute      = 15
         Script      = "task_mighty_close.bat"
         Description = "更新强势反包收盘涨幅 (15:15)"
+        TimeLimit   = 10
+    },
+    @{
+        Name        = "CatClaw_lianban_close"
+        Hour        = 15
+        Minute      = 15
+        Script      = "task_lianban_close.bat"
+        Description = "更新连板反包收盘涨幅 (15:15)"
+        TimeLimit   = 10
+    },
+    @{
+        Name        = "CatClaw_jjmighty_close"
+        Hour        = 15
+        Minute      = 15
+        Script      = "task_jjmighty_close.bat"
+        Description = "更新竞价强势收盘涨幅 (15:15)"
         TimeLimit   = 10
     },
     @{

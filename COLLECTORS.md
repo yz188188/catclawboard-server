@@ -151,9 +151,13 @@ python -m app.collectors.mighty --close   # 收盘后更新收盘涨幅
 |------|------|------|
 | 9:26 | bidding | 竞价数据 |
 | 9:30 | mighty | 强势反包实时监控（内含16分钟循环） |
+| 9:30 | lianban | 连板反包实时监控（内含16分钟循环） |
+| 9:30 | jjmighty | 竞价强势实时监控（内含16分钟循环） |
 | 15:05 | stat | 涨停统计 |
 | 15:08 | thsdata | 涨停反包 + 大额成交（**收盘后全天数据**） |
 | 15:15 | mighty_close | 更新强势反包收盘涨幅 |
+| 15:15 | lianban_close | 更新连板反包收盘涨幅 |
+| 15:15 | jjmighty_close | 更新竞价强势收盘涨幅 |
 | 23:00 | cleanup_logs | 清理30天前日志 |
 
 > **为什么 thsdata 在收盘后？** THS_RQ 获取实时行情，盘中 high/low/amount 不完整，
@@ -172,7 +176,7 @@ type logs\stat_20260216.log
 python -m app.collectors.scheduler --now
 ```
 
-`--now` 模式自动推算最近交易日，依次执行 bidding → stat → thsdata → mighty_close。
+`--now` 模式自动推算最近交易日，依次执行 bidding → stat → thsdata → mighty_close → lianban_close → jjmighty_close。
 
 非交易日任务自动跳过（秒级退出）。每个任务失败自动重试 2 次。
 

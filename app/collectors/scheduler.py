@@ -1,12 +1,17 @@
 # coding:utf-8
 """自动定时采集调度器
 
-采集时间表（交易日）:
-  9:26      - bidding        竞价数据（一次）
-  9:30-9:46 - mighty         强势反包实时监控（内含循环，启动一次）
-  15:05     - stat           涨停统计（一次）
-  15:08     - thsdata        涨停反包 + 大额成交（收盘后全天数据）
-  15:15     - mighty_close   更新收盘涨幅（一次）
+采集时间表（交易日，共 10 个任务）:
+  9:26      - bidding         竞价数据（一次）
+  9:30-9:46 - mighty          强势反包实时监控（内含循环，启动一次）
+  9:30-9:46 - lianban         连板反包实时监控（内含循环，启动一次）
+  9:30-9:46 - jjmighty        竞价强势实时监控（内含循环，启动一次）
+  15:05     - stat            涨停统计（一次）
+  15:08     - thsdata         涨停反包 + 大额成交（收盘后全天数据）
+  15:15     - mighty_close    更新强势反包收盘涨幅（一次）
+  15:15     - lianban_close   更新连板反包收盘涨幅（一次）
+  15:15     - jjmighty_close  更新竞价强势收盘涨幅（一次）
+  23:00     - cleanup_logs    清理30天前日志
 
 注意: thsdata 必须在收盘后执行，因为 THS_RQ 获取实时行情，
 盘中 high/low/amount 不完整，导致振幅和成交额筛选不准确。
@@ -19,6 +24,7 @@
 import os
 import sys
 import time
+import threading
 from datetime import datetime, timedelta
 
 from app.collectors import func
@@ -244,13 +250,18 @@ def main():
                     done.add("bidding")
 
                 # 9:30 启动实时监控（mighty/lianban/jjmighty 各含循环到 9:46 自动退出）
+                # 使用多线程并行执行，避免串行导致后两个错过 9:30-9:46 窗口
                 elif hm >= 930 and "mighty" not in done:
-                    run_task("lianban", lambda db: run_lianban(trading_day, db))
-                    done.add("lianban")
-                    run_task("jjmighty", lambda db: run_jjmighty(trading_day, db))
-                    done.add("jjmighty")
-                    run_task("mighty", lambda db: run_mighty(trading_day, db))
-                    done.add("mighty")
+                    threads = [
+                        threading.Thread(target=run_task, args=("lianban", lambda db: run_lianban(trading_day, db))),
+                        threading.Thread(target=run_task, args=("jjmighty", lambda db: run_jjmighty(trading_day, db))),
+                        threading.Thread(target=run_task, args=("mighty", lambda db: run_mighty(trading_day, db))),
+                    ]
+                    for t in threads:
+                        t.start()
+                    for t in threads:
+                        t.join()
+                    done.update(["lianban", "jjmighty", "mighty"])
 
                 # 15:05 执行 stat（一次）
                 elif hm >= 1505 and "stat" not in done:
@@ -314,6 +325,6 @@ if __name__ == "__main__":
         if task_name:
             run_single_task(task_name)
         else:
-            print("用法: python -m app.collectors.scheduler --task <bidding|thsdata|stat|mighty|mighty_close>")
+            print("用法: python -m app.collectors.scheduler --task <bidding|stat|thsdata|mighty|mighty_close|lianban|lianban_close|jjmighty|jjmighty_close>")
     else:
         main()
