@@ -26,7 +26,9 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
     if not user or user.password != req.password:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
-    token = create_access_token({"sub": user.username})
+    user.token_version += 1
+    db.commit()
+    token = create_access_token({"sub": user.username, "tv": user.token_version})
     return TokenResponse(access_token=token)
 
 

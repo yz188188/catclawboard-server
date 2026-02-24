@@ -37,6 +37,11 @@ def get_current_user(
     user = db.query(User).filter(User.username == username).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    token_version = payload.get("tv")
+    if token_version is None or token_version != user.token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="该账号已在其他设备登录")
+
     return user
 
 
