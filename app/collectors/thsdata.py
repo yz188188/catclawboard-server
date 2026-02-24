@@ -66,7 +66,7 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
 
     data_result = THS_RQ(
         codes_list,
-        "changeRatio;latest;high;low;open;upperLimit;preClose;amount;tradeStatus",
+        "changeRatio;latest;high;low;open;upperLimit;lowerLimit;preClose;amount;tradeStatus",
         "", "format:json",
     )
 
@@ -95,6 +95,7 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
         high = item["table"]["high"]
         low = item["table"]["low"]
         amount = item["table"]["amount"]
+        lower_limit = item["table"]["lowerLimit"]
         trade_status = item["table"]["tradeStatus"]
         thscode = item["thscode"]
         thscoder = thscode.split(".")
@@ -107,9 +108,13 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
         if latest[0] == upper_limit[0]:
             continue
 
-        # 记录成交额 > 8亿的股票（供 mighty 强势反包使用）
-        if amount[0] and amount[0] >= 800000000:
-            db.add(LargeAmount(cdate=cdate, stockid=thscode, amount=amount[0]))
+        # 入池条件（OR）：成交额>8亿 / 当日跌停 / 冲高回落>=5%
+        is_large = amount[0] and amount[0] >= 800000000
+        is_limit_down = lower_limit[0] is not None and latest[0] == lower_limit[0]
+        drop_from_high = round((high[0] - latest[0]) / high[0] * 100, 2) if high[0] else 0
+        is_pullback = drop_from_high >= 5
+        if is_large or is_limit_down or is_pullback:
+            db.add(LargeAmount(cdate=cdate, stockid=thscode, amount=amount[0] or 0))
             large_amount_count += 1
 
         # 昨日涨停股中振幅>=10且回撤<10的
