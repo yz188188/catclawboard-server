@@ -13,10 +13,11 @@ from app.features.ztdb.models import Ztdb
 from app.features.mighty.models import LargeAmount
 
 try:
-    from iFinDPy import THS_DR, THS_RQ, THS_WCQuery
+    from iFinDPy import THS_DR, THS_RQ, THS_HQ, THS_WCQuery
 except ImportError:
     THS_DR = None
     THS_RQ = None
+    THS_HQ = None
     THS_WCQuery = None
 
 
@@ -129,6 +130,61 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
 
     db.commit()
     return {"date": cdate, "ztdb_count": ztdb_count, "large_amount_count": large_amount_count}
+
+
+def backfill_large_amount(cdate: str, db: Session) -> dict:
+    """补采指定日期的大额成交数据（历史数据）
+
+    用 THS_DR 获取 A 股代码列表，THS_HQ 获取指定日期历史成交额，
+    过滤成交额 > 8 亿写入 db_large_amount。
+
+    Args:
+        cdate: 交易日 YYYYMMDD 格式
+        db: SQLAlchemy Session
+
+    Returns:
+        统计信息
+    """
+    if THS_DR is None or THS_HQ is None:
+        return {"error": "iFinDPy not available"}
+
+    trading_day = f"{cdate[:4]}-{cdate[4:6]}-{cdate[6:]}"
+
+    # 获取全部 A 股代码
+    data_codes = THS_DR(
+        "p03291",
+        f"date={cdate};blockname=001005010;iv_type=allcontract",
+        "p03291_f001:Y,p03291_f002:Y,p03291_f003:Y,p03291_f004:Y",
+    )
+    if data_codes.errorcode != 0:
+        return {"error": f"THS_DR 失败: {data_codes.errmsg}"}
+
+    codes_list = data_codes.data["p03291_f002"].tolist()
+
+    # 用 THS_HQ 批量获取历史成交额
+    codes_str = ";".join(codes_list)
+    data_hq = THS_HQ(codes_str, "amount", "", trading_day, trading_day, "format:json")
+    if data_hq.errorcode != 0:
+        return {"error": f"THS_HQ 失败: {data_hq.errmsg}"}
+
+    jdata = json.loads(data_hq.data.decode("gb18030"))
+
+    # 清除当日旧数据
+    db.query(LargeAmount).filter(LargeAmount.cdate == cdate).delete()
+
+    count = 0
+    for item in jdata["tables"]:
+        thscode = item["thscode"]
+        amount_list = item["table"].get("amount", [])
+        if not amount_list:
+            continue
+        amount = amount_list[0]
+        if amount and amount >= 800000000:
+            db.add(LargeAmount(cdate=cdate, stockid=thscode, amount=amount))
+            count += 1
+
+    db.commit()
+    return {"date": cdate, "large_amount_count": count}
 
 
 if __name__ == "__main__":

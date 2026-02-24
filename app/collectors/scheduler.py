@@ -23,11 +23,13 @@ from datetime import datetime, timedelta
 
 from app.collectors import func
 from app.collectors.stat import collect_stat
-from app.collectors.thsdata import collect_ztdb
+from app.collectors.thsdata import collect_ztdb, backfill_large_amount
 from app.collectors.bidding import collect_bidding
 from app.collectors.mighty import collect_mighty, update_close_price
 from app.collectors.lianban import collect_lianban, update_close_price as lianban_update_close
 from app.collectors.jjmighty import collect_jjmighty, update_close_price as jjmighty_update_close
+from app.collectors.models import ZtReson
+from app.features.mighty.models import LargeAmount
 from app.database import SessionLocal
 
 # 日志文件路径
@@ -126,6 +128,42 @@ def sleep_until_tomorrow():
     time.sleep(max(secs, 60))
 
 
+def ensure_previous_day_data(trading_day: str):
+    """检查并补采前一交易日的 db_zt_reson 和 db_large_amount 数据
+
+    早盘任务（bidding/mighty/lianban/jjmighty）依赖前一交易日下午写入的
+    涨停原因和大额成交数据。首次运行或前一天采集失败时需自动补采。
+
+    Args:
+        trading_day: 当前交易日 YYYY-MM-DD 格式
+    """
+    yesterday_str = func.get_previous_trading_day(trading_day)
+    yesterday_cdate = yesterday_str.replace("-", "")
+
+    db = SessionLocal()
+    try:
+        # 检查 db_zt_reson
+        zt_count = db.query(ZtReson).filter(ZtReson.cdate == yesterday_cdate).count()
+        if zt_count == 0:
+            log(f"补采前一交易日 {yesterday_cdate} 涨停原因数据...")
+            result = collect_stat(yesterday_cdate, db)
+            log(f"补采 stat 完成: {result}")
+
+        # 检查 db_large_amount
+        la_count = db.query(LargeAmount).filter(LargeAmount.cdate == yesterday_cdate).count()
+        if la_count == 0:
+            log(f"补采前一交易日 {yesterday_cdate} 大额成交数据...")
+            result = backfill_large_amount(yesterday_cdate, db)
+            log(f"补采 large_amount 完成: {result}")
+
+        if zt_count > 0 and la_count > 0:
+            log(f"前一交易日 {yesterday_cdate} 数据完整，无需补采")
+    except Exception as e:
+        log(f"补采前一交易日数据失败: {e}")
+    finally:
+        db.close()
+
+
 def run_single_task(name: str):
     """执行单个采集任务（供 Windows 任务计划程序调用）
 
@@ -159,6 +197,9 @@ def run_single_task(name: str):
     log(f"定时任务模式，执行 {name}，交易日: {trading_day}")
     func.thslogin()
     try:
+        # 早盘任务需要前一交易日数据
+        if name in ("bidding", "mighty", "lianban", "jjmighty"):
+            ensure_previous_day_data(trading_day)
         success = run_task(name, tasks[name])
     finally:
         func.thslogout()
@@ -191,6 +232,11 @@ def main():
             while datetime.now().strftime("%Y-%m-%d") == today:
                 now = datetime.now()
                 hm = now.hour * 100 + now.minute  # 如 925, 930, 1505
+
+                # 9:20+ 补采前一交易日数据（早盘首个任务前）
+                if hm >= 920 and "backfill" not in done:
+                    ensure_previous_day_data(trading_day)
+                    done.add("backfill")
 
                 # 9:26 执行 bidding（一次）
                 if hm >= 926 and "bidding" not in done:
@@ -247,6 +293,7 @@ def run_all_now():
     log(f"立即执行模式，交易日: {trading_day}")
     func.thslogin()
     try:
+        ensure_previous_day_data(trading_day)
         run_task("bidding", lambda db: run_bidding(trading_day, db))
         run_task("stat", lambda db: run_stat(cdate, db))
         run_task("thsdata", lambda db: run_thsdata(trading_day, db))
