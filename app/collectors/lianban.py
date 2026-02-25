@@ -79,6 +79,7 @@ def collect_lianban(trading_day: str, db: Session) -> dict:
 
     total_found = 0
     loop_count = 0
+    filter_stats = {"none_data": 0, "upper_limit": 0, "cje_rate": 0, "zhenfu": 0, "chg_1min": 0, "score": 0, "passed": 0}
 
     while should_execute():
         loop_count += 1
@@ -98,7 +99,7 @@ def collect_lianban(trading_day: str, db: Session) -> dict:
             print(f"THS_RQ 错误: {data_result.errmsg}")
             continue
 
-        jdata = json.loads(data_result.data)
+        jdata = json.loads(data_result.data.decode('gb18030'))
 
         for item in jdata["tables"]:
             thscode = item["thscode"]
@@ -118,27 +119,33 @@ def collect_lianban(trading_day: str, db: Session) -> dict:
             amount = item["table"]["amount"]
 
             if latest[0] is None or open_price[0] is None or pre_close[0] is None:
+                filter_stats["none_data"] += 1
                 continue
 
             # 过滤已涨停
             if upper_limit[0] is not None and float(latest[0]) == float(upper_limit[0]):
+                filter_stats["upper_limit"] += 1
                 continue
 
             # 成交额占比: 当前成交额 / 昨日总成交额 * 100
             ls_amount = stock_pool[thscode]["amount"]
             if ls_amount <= 0:
+                filter_stats["cje_rate"] += 1
                 continue
             cje_rate = round(amount[0] / ls_amount * 100, 2)
             if cje_rate < 7:
+                filter_stats["cje_rate"] += 1
                 continue
 
             # 振幅: (最新价 - 开盘价) / 开盘价 * 100
             zhenfu = round(float(latest[0]) / float(open_price[0]) * 100 - 100, 2)
             if zhenfu < 3:
+                filter_stats["zhenfu"] += 1
                 continue
 
             # 1分钟涨速
             if not chg_1min[0] or chg_1min[0] < 1:
+                filter_stats["chg_1min"] += 1
                 continue
 
             # 板块系数
@@ -152,7 +159,10 @@ def collect_lianban(trading_day: str, db: Session) -> dict:
             # 评分
             score = round((chg_1min[0] * 20 + change_ratio[0] * 10) * zs_times + cje * 0.001)
             if score < 100:
+                filter_stats["score"] += 1
                 continue
+
+            filter_stats["passed"] += 1
 
             # 开盘涨幅
             ozf = round(float(open_price[0]) / float(pre_close[0]) * 100 - 100, 2)
@@ -179,7 +189,11 @@ def collect_lianban(trading_day: str, db: Session) -> dict:
             print(f"入选: {thscode} {stock_pool[thscode]['lbs']}连板 评分={score} "
                   f"涨幅={round(change_ratio[0], 2)}% 换手率={cje_rate}% 时间={hm}")
 
+        if loop_count % 30 == 0:
+            print(f"第{loop_count}轮 过滤统计: {filter_stats}")
+
     print(f"连板反包监控结束，共 {loop_count} 轮，入选 {total_found} 只")
+    print(f"最终过滤统计: {filter_stats}")
     return {"date": cdate, "loops": loop_count, "found": total_found}
 
 
@@ -201,7 +215,7 @@ def update_close_price(trading_day: str, db: Session) -> dict:
     if data_result.errorcode != 0:
         return {"error": data_result.errmsg}
 
-    jdata = json.loads(data_result.data)
+    jdata = json.loads(data_result.data.decode('gb18030'))
     updated = 0
     for item in jdata["tables"]:
         thscode = item["thscode"]

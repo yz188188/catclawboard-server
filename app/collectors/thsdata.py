@@ -95,7 +95,7 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
         high = item["table"]["high"]
         low = item["table"]["low"]
         amount = item["table"]["amount"]
-        lower_limit = item["table"]["lowerLimit"]
+        lower_limit = item["table"].get("lowerLimit", [None])
         trade_status = item["table"]["tradeStatus"]
         thscode = item["thscode"]
         thscoder = thscode.split(".")
@@ -111,8 +111,10 @@ def collect_ztdb(trading_day: str, db: Session) -> dict:
         # 入池条件（OR）：成交额>8亿 / 当日跌停 / 冲高回落>=5%
         is_large = amount[0] and amount[0] >= 800000000
         is_limit_down = lower_limit[0] is not None and latest[0] == lower_limit[0]
+        # 冲高回落：盘中最高价须高于昨收3%以上，且从高点回落>=5%
+        rise_from_pre = round((high[0] - pre_close[0]) / pre_close[0] * 100, 2) if pre_close[0] else 0
         drop_from_high = round((high[0] - latest[0]) / high[0] * 100, 2) if high[0] else 0
-        is_pullback = drop_from_high >= 5
+        is_pullback = rise_from_pre >= 3 and drop_from_high >= 5
         if is_large or is_limit_down or is_pullback:
             db.add(LargeAmount(cdate=cdate, stockid=thscode, amount=amount[0] or 0))
             large_amount_count += 1

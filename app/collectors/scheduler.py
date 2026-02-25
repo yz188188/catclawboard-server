@@ -244,8 +244,8 @@ def main():
                     ensure_previous_day_data(trading_day)
                     done.add("backfill")
 
-                # 9:26 执行 bidding（一次）
-                if hm >= 926 and "bidding" not in done:
+                # 9:27 执行 bidding（一次）
+                if hm >= 927 and "bidding" not in done:
                     run_task("bidding", lambda db: run_bidding(trading_day, db))
                     done.add("bidding")
 

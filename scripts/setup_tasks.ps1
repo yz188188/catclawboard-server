@@ -28,9 +28,9 @@ $tasks = @(
     @{
         Name        = "CatClaw_bidding"
         Hour        = 9
-        Minute      = 26
+        Minute      = 27
         Script      = "task_bidding.bat"
-        Description = "竞价数据采集 (9:26)"
+        Description = "竞价数据采集 (9:27)"
         TimeLimit   = 10
     },
     @{

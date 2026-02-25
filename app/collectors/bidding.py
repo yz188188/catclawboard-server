@@ -100,7 +100,7 @@ def collect_bidding(trading_day: str, db: Session) -> dict:
         change_ratio = item["table"]["changeRatio"]
         trade_status = item["table"]["tradeStatus"]
 
-        if trade_status[0] != "交易":
+        if trade_status[0] in (None, "停牌"):
             continue
 
         # 统计涨停
