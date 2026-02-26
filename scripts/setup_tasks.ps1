@@ -1,6 +1,9 @@
 # ========================================
 # CatClawBoard Windows Task Scheduler 一键注册脚本
 # 需要以管理员权限运行
+#
+# 使用 scheduler 常驻模式：单进程登录 THS，按时间表自动执行所有采集任务
+# 避免多进程同时 thslogin() 导致互相踢下线
 # ========================================
 
 # Check admin privileges
@@ -19,83 +22,34 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " CatClawBoard 定时任务注册" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-
-# 检查脚本目录
 Write-Host "脚本目录: $ScriptDir"
 
-# 任务定义: 名称, 触发时间(时:分), bat 脚本, 说明, 最大执行时长(分钟)
+# ---- 第1步: 删除旧的独立任务 ----
+$oldTasks = @(
+    "CatClaw_bidding", "CatClaw_mighty", "CatClaw_lianban", "CatClaw_jjmighty",
+    "CatClaw_stat", "CatClaw_thsdata",
+    "CatClaw_mighty_close", "CatClaw_lianban_close", "CatClaw_jjmighty_close"
+)
+
+Write-Host ""
+Write-Host "清理旧的独立任务..." -ForegroundColor Yellow
+foreach ($name in $oldTasks) {
+    $existing = Get-ScheduledTask -TaskName $name -TaskPath $TaskFolder -ErrorAction SilentlyContinue
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $name -TaskPath $TaskFolder -Confirm:$false
+        Write-Host "  已删除: $name" -ForegroundColor DarkGray
+    }
+}
+
+# ---- 第2步: 注册 scheduler 常驻任务 + cleanup_logs ----
 $tasks = @(
     @{
-        Name        = "CatClaw_bidding"
+        Name        = "CatClaw_scheduler"
         Hour        = 9
-        Minute      = 27
-        Script      = "task_bidding.bat"
-        Description = "竞价数据采集 (9:27)"
-        TimeLimit   = 10
-    },
-    @{
-        Name        = "CatClaw_mighty"
-        Hour        = 9
-        Minute      = 30
-        Script      = "task_mighty.bat"
-        Description = "强势反包实时监控 (9:30，内含16分钟循环)"
-        TimeLimit   = 30
-    },
-    @{
-        Name        = "CatClaw_lianban"
-        Hour        = 9
-        Minute      = 30
-        Script      = "task_lianban.bat"
-        Description = "连板反包实时监控 (9:30，内含16分钟循环)"
-        TimeLimit   = 30
-    },
-    @{
-        Name        = "CatClaw_jjmighty"
-        Hour        = 9
-        Minute      = 30
-        Script      = "task_jjmighty.bat"
-        Description = "竞价强势实时监控 (9:30，内含16分钟循环)"
-        TimeLimit   = 30
-    },
-    @{
-        Name        = "CatClaw_stat"
-        Hour        = 15
-        Minute      = 5
-        Script      = "task_stat.bat"
-        Description = "涨停统计 (15:05)"
-        TimeLimit   = 15
-    },
-    @{
-        Name        = "CatClaw_thsdata"
-        Hour        = 15
-        Minute      = 8
-        Script      = "task_thsdata.bat"
-        Description = "涨停反包+大额成交，收盘后全天数据 (15:08)"
-        TimeLimit   = 15
-    },
-    @{
-        Name        = "CatClaw_mighty_close"
-        Hour        = 15
         Minute      = 15
-        Script      = "task_mighty_close.bat"
-        Description = "更新强势反包收盘涨幅 (15:15)"
-        TimeLimit   = 10
-    },
-    @{
-        Name        = "CatClaw_lianban_close"
-        Hour        = 15
-        Minute      = 15
-        Script      = "task_lianban_close.bat"
-        Description = "更新连板反包收盘涨幅 (15:15)"
-        TimeLimit   = 10
-    },
-    @{
-        Name        = "CatClaw_jjmighty_close"
-        Hour        = 15
-        Minute      = 15
-        Script      = "task_jjmighty_close.bat"
-        Description = "更新竞价强势收盘涨幅 (15:15)"
-        TimeLimit   = 10
+        Script      = "task_scheduler.bat"
+        Description = "采集调度器常驻模式 (9:15 启动，自动执行全天所有采集任务)"
+        TimeLimit   = 480
     },
     @{
         Name        = "CatClaw_cleanup_logs"
@@ -169,6 +123,6 @@ Get-ScheduledTask -TaskPath $TaskFolder | Format-Table TaskName, State, @{
 } -AutoSize
 
 Write-Host ""
-Write-Host "手动测试: .\scripts\run_task.bat stat" -ForegroundColor DarkGray
-Write-Host "查看日志: type logs\stat_$(Get-Date -Format 'yyyyMMdd').log" -ForegroundColor DarkGray
+Write-Host "手动启动: .\scripts\task_scheduler.bat" -ForegroundColor DarkGray
+Write-Host "查看日志: type logs\scheduler_$(Get-Date -Format 'yyyyMMdd').log" -ForegroundColor DarkGray
 Write-Host "删除所有: Get-ScheduledTask -TaskPath '$TaskFolder' | Unregister-ScheduledTask -Confirm:`$false" -ForegroundColor DarkGray
